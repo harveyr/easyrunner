@@ -18,7 +18,7 @@ class EasyRunner(object):
     start_time = None
 
     cli_args = None
-
+    cli_handlers = []
     output_handlers = set()
 
     verbose = False
@@ -38,6 +38,10 @@ class EasyRunner(object):
     def __init__(self):
         pass
 
+    def set_cli_args(self, args):
+        self.cli_args = args
+        self._process_cli_args()
+
     def set_base_path(self, path):
         self.base_path = path
 
@@ -48,10 +52,17 @@ class EasyRunner(object):
         self.command = command
 
     def set_command_path(self, path):
-        self.command_path = path
+        if os.path.isdir(path):
+            self.command_path = path
+        else:
+            print self._problem("Bad command path: " + str(path))
 
     def add_search_path(self, path):
-        self.search_paths.add(path)
+        if path[0] == '~':
+            path = os.path.expanduser(path)
+        if os.path.exists(path):
+            self.search_paths.add(path)
+            print 'adding search path ' + path
 
     def add_file_regex(self, regex):
         self.file_res.add(regex)
@@ -61,6 +72,9 @@ class EasyRunner(object):
 
     def add_suffix(self, suffix):
         self.command_suffixes.add(suffix)
+
+    def add_cli_handler(self, func):
+        self.cli_handlers.append(func)
 
     def add_output_handler(self, func):
         self.output_handlers.add(func)
@@ -72,11 +86,26 @@ class EasyRunner(object):
         diff = datetime.datetime.now() - start_time
         return str(diff).split('.')[0]
 
+    def prompt_user(self):
+        try:
+            c = raw_input(self._status('\nContinue? [Y/n] '))
+        except:
+            self._quit()
+        if c.lower()[:1] == 'n':
+            self._quit()
+
+        return True
+
     def run(self):
         self._validate()
         self._find_target_files()
         os.chdir(self.command_path)
-        self._run_tests()
+        print_prompt_msg()
+        if prompt_user():
+            self._run_tests()
+
+    def print_prompt_msg():
+        pass
 
     def _run_tests(self):
         self.start_time = datetime.datetime.now()
@@ -88,6 +117,11 @@ class EasyRunner(object):
         cmd = self._build_command(target_file)
 
         print self._status('\n' + cmd)
+
+        print 'still just testing...'
+        return
+        
+
         try:
             p = sub.Popen(cmd.split(' '), stdout=sub.PIPE, stderr=sub.PIPE)
             output, errors = p.communicate()
@@ -112,23 +146,25 @@ class EasyRunner(object):
     def _build_command(self, target_file):
         prefixes = ' '.join(self.command_prefixes)
         suffixes = ' '.join(self.command_suffixes)
-        return ' '.join([self.command, prefixes, target_file, suffixes])
+        return self.command + ' '.join([prefixes, target_file, suffixes])
 
     def _find_target_files(self):
         print self._status('Searching ...')
         for path in self.search_paths:
+            # print '\tpath: ' + path
             count = 0
             for root, subFolders, files in os.walk(path):
                 for f in files:
+                    # print '\t file: ' + f
                     f_path = os.path.join(root,f)
                     for r in self.file_res:
+                        # print '\tregex: ' + r
                         if re.search(r, f_path, re.I) is not None:
                             self.target_files.append(f_path)
                             count += 1
                             break
 
             print path + self._status(' [{0}]'.format(count))
-
 
     def _validate(self):
         if not self.command_path:
@@ -141,6 +177,21 @@ class EasyRunner(object):
             if not os.path.isdir(p):
                 self._problem('Bad path: ' + p)
 
+    def _process_cli_args(self):
+        self.add_file_regex(r'{0}'.format(self.cli_args[1]))
+
+        for a in self.cli_args[2:]:
+            self._process_cli_arg(a)
+
+    def _process_cli_arg(self, arg):
+        idx = self.cli_args.index(arg)
+        if arg == '--sp':
+            for i in range(idx + 1, len(self.cli_args)):
+                n_arg = self.cli_args[i]
+                self.add_search_path(n_arg)
+        if arg == '--cp':
+            path = self.cli_args[idx + 1]
+            self.set_command_path(path)
 
     def _status(self, text):
         return self.clr.get('BLUE') + text + self.clr.get('ENDC')
@@ -163,6 +214,7 @@ class BehatRunner(EasyRunner):
         'failed_features': []
     }
 
+    features = []
     outcome_re = None
     pass_count_re = None
     fail_count_re = None
@@ -172,16 +224,12 @@ class BehatRunner(EasyRunner):
     def __init__(self):
         super(BehatRunner, self).__init__()
 
-        self.set_command = 'bin/behat'
+        self.set_command('bin/behat')
         self.add_suffix('--ansi')
         self.outcome_re = re.compile(r'\d+\Wscenarios?\W\(.+\)')
         self.pass_count = re.compile(r'(\d+) passed')
         self.fail_count_re = re.compile(r'(\d+) failed')
         self.add_output_handler(self._update_log)
-
-    def run(self):
-        self._extract_tags()
-
 
     def _update_log(self, feature, output):
         outcome = self.outcome_re.findall(output)
@@ -200,12 +248,28 @@ class BehatRunner(EasyRunner):
                 test_log['failed_features'].append(f_name)
                 print output
 
+    def _process_cli_args(self):
+        super(BehatRunner, self)._process_cli_args()
+        self._extract_tags()
+
     def _extract_tags(self):
         args = self.cli_args
         if '--tags' in args:
-            for t in args[args.index('--tags') + 1].split(','):
+            for t in args[args.index('--tags')].split(','):
                 self.tags.add(t)
-
         for a in args:
             if a[:1] == '@':
                 self.tags.add(a[1:])
+        print 'tags: ' + str(self.tags)
+
+        self.add_suffix('--tags ' + ','.join(self.tags))
+        
+        # print_log()
+        # print_tally()
+
+
+if __name__ == '__main__':
+    if '--behat' in sys.argv:
+        runner = BehatRunner()
+        runner.set_cli_args(sys.argv)
+        runner.run()
