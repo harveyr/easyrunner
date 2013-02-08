@@ -101,7 +101,8 @@ class EasyRunner(object):
         self._find_target_files()
 
         if len(self.target_files) == 0:
-            print self._bad('No files found.')
+            print self._bad('No matches found.')
+            self._quit()
         
         if self.command_path:
             os.chdir(self.command_path)
@@ -110,6 +111,7 @@ class EasyRunner(object):
         
         if self.prompt_user():
             self._run_tests()
+            self._finish()
 
     def print_title(self):
         print self._header('\n----- ' + self.title + ' -----\n')
@@ -161,9 +163,29 @@ class EasyRunner(object):
         # Override me
         pass
 
+    def _print_search_parameters(self):
+        if len(self.file_required_res) + len(self.file_optional_res) == 0:
+            self._bad('No search patterns provided.')
+            self._quit()
+
+        print self._status('Search Parameters')
+        if len(self.file_required_res) > 0:
+            pats = [self._warn(r.pattern) for r in self.file_required_res]
+            s = '\tFile must match {0} of these patterns: '.format(
+                self._warn('all'))
+            s += ' | '.join(pats)
+            print s
+        if len(self.file_optional_res) > 0:
+            pats = [self._status(r.pattern) for r in self.file_optional_res]
+            s = '\tFile must match {0} of these patterns: '.format(
+                self._status('any'))
+            s += ' | '.join(pats)
+            print s
+
     def _find_target_files(self):
+        self._print_search_parameters()
+        print self._status('Searching...')
         total_file_count = 0
-        print 'Searching ...'
         for path in self.search_paths:
             for root, subFolders, files in os.walk(path):
                 count = 0
@@ -175,15 +197,24 @@ class EasyRunner(object):
                     # Check if it fails any of the required patterns
                     for r in self.file_required_res:
                         if not r.search(f_path):
+                            # print f_path + ' failed ' + r.pattern
                             skip = True
                     if skip:
                         continue
-                    # Make sure it matches at least one optional pattern
+                    
+                    # Make sure it matches at least one optional pattern.
+                    # (And handle the case when only required patterns are
+                    # provided.)
+                    if len(self.file_optional_res) > 0:
+                        skip = True
                     for r in self.file_optional_res:
                         if r.search(f_path) is not None:
-                            self.target_files.append(f_path)
-                            count += 1
+                            skip = False
                             break
+
+                    if skip is not True:
+                        self.target_files.append(f_path)
+                        count += 1
                 s = '\t' + root
                 if count == 0:
                     print s
@@ -207,10 +238,7 @@ class EasyRunner(object):
                 self._quit()
 
     def _process_cli_args(self):
-        # Add the search string to the optional regexes
-        self.add_optional_regex(r'{0}'.format(self.cli_args[1]))
-
-        for a in self.cli_args[2:]:
+        for a in self.cli_args[1:]:
             self._process_cli_arg(a)
 
     def _process_cli_arg(self, arg):
@@ -223,6 +251,14 @@ class EasyRunner(object):
             self.add_optional_regex(self.cli_args[idx + 1])
         elif arg == '-rp':
             self.add_required_regex(self.cli_args[idx + 1])
+
+    def _finish(self):
+        pass
+
+    def _get_relative_search_path(self, file_path):
+        for path in self.search_paths:
+            if path in file_path:
+                return file_path.split(path)[1][1:]
 
     def _status(self, text):
         return self.clr.get('BLUE') + text + self.clr.get('ENDC')
@@ -242,6 +278,12 @@ class EasyRunner(object):
     def _quit(self):
         print '\nFare thee well.'
         sys.exit()
+
+
+class NoseRunner(EasyRunner):
+    def __init__(self):
+        self.set_title('Nose Runny')
+        self.set_command('nosetests')
 
 
 class BehatRunner(EasyRunner):
@@ -275,8 +317,8 @@ class BehatRunner(EasyRunner):
     def print_prompt_msg(self):
         print self._status('The following feature files will be run:')
         for f in self.target_files:
-            parts = f.split('/')
-            print '\t' + '/'.join(parts[:-1]) + '/' + self._status(parts[-1])
+            parts = self._get_relative_search_path(f).split('/')
+            print '\t' + '/'.join(parts[:-1]) + '/' + self._warn(parts[-1])
 
         config_line = '[ ' + self._good(self.config_file)
 
@@ -338,6 +380,8 @@ class BehatRunner(EasyRunner):
         if not os.path.isfile(path):
             print self._bad('Bad config file: ' + path)
 
+    def _finish(self):
+        self.print_log()
 
     def print_tally(self):
         pass_str = self._good('{0} passes'.format(self.test_log['passes']))
@@ -360,9 +404,24 @@ class BehatRunner(EasyRunner):
                 ', '.join(self.test_log['failed_features'])))
         print '------'
 
+    def print_log():
+        if len(self.test_log) == 0:
+            print self._warn('\nNO RESULTS')
+            return
+
+        print self._header('\nRESULTS')
+        for l in self.test_log['features']:
+            print self._status(l['feature'])
+            for r in l['results']:
+                print ' - ' + r
 
 if __name__ == '__main__':
     if '--behat' in sys.argv:
         runner = BehatRunner()
+        runner.set_cli_args(sys.argv)
+        runner.run()
+    
+    if '--nose' in sys.argv:
+        runner = NoseRunner()
         runner.set_cli_args(sys.argv)
         runner.run()
