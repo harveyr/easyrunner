@@ -251,6 +251,8 @@ class EasyRunner(object):
             self.add_optional_regex(self.cli_args[idx + 1])
         elif arg == '-rp':
             self.add_required_regex(self.cli_args[idx + 1])
+        elif arg == '-v':
+            self.set_verbose(True)
 
     def _finish(self):
         pass
@@ -327,20 +329,27 @@ class BehatRunner(EasyRunner):
             for t in self.tags:
                 config_line += self._good('@{0} '.format(t))
 
+        if self.verbose is True:
+            config_line += ' | ' + self._good('verbose')
+
         config_line += ' ]'
         print config_line
 
 
     def _handle_output(self, feature_file, output):
-        self._update_log(feature_file, output)
+        # if re.search(r'Error:', output) is not None:
+        if 'Error:' in output:
+            print self._bad(output.strip())
+        else:
+            self._update_log(feature_file, output)
+
         self.print_tally()
 
     def _update_log(self, feature_file, output):
         outcome = self.outcome_re.findall(output)
 
-        self.test_log['features'][feature_file] = outcome
-
         if len(outcome) > 0:
+            self.test_log['features'][feature_file] = outcome
             pass_count = self.pass_count_re.findall(outcome[0])
             if (len(pass_count) > 0):
                 self.test_log['passes'] += int(pass_count[0])
@@ -367,7 +376,8 @@ class BehatRunner(EasyRunner):
             if a[:1] == '@':
                 self.tags.add(a[1:])
 
-        self.add_suffix('--tags ' + ','.join(self.tags))
+        if len(self.tags) > 0:
+            self.add_suffix('--tags ' + ','.join(self.tags))
         
     def _extract_config_file(self):
         if '-c' in self.cli_args:
@@ -404,17 +414,20 @@ class BehatRunner(EasyRunner):
                 ', '.join(self.test_log['failed_features'])))
         print '------'
 
-    def print_log():
+    def print_log(self):
         if len(self.test_log) == 0:
             print self._warn('\nNO RESULTS')
             return
 
         print self._header('\nRESULTS')
-        for l in self.test_log['features']:
-            print self._status(l['feature'])
-            for r in l['results']:
-                print ' - ' + r
+        for feature in self.target_files:
+            if not feature in self.test_log['features']:
+                continue
 
+            print self._status(feature)
+            print ' - ' + ' | '.join(self.test_log['features'][feature])
+            # for r in l['results']:
+            #     print ' - ' + r
 if __name__ == '__main__':
     if '--behat' in sys.argv:
         runner = BehatRunner()
