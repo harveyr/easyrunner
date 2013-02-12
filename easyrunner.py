@@ -119,8 +119,8 @@ class EasyRunner(object):
     def print_prompt_msg(self):
         print self._status('Target Files:')
         for f in self.target_files:
-            print f
-        pass
+            parts = self._get_relative_search_path(f).split('/')
+            print '\t' + '/'.join(parts[:-1]) + '/' + self._warn(parts[-1])
 
     def _run_tests(self):
         self.start_time = datetime.datetime.now()
@@ -133,7 +133,7 @@ class EasyRunner(object):
         print self._status('\n' + cmd)
 
         try:
-            p = sub.Popen(cmd.split(' '), stdout=sub.PIPE, stderr=sub.PIPE)
+            p = sub.Popen(cmd, stdout=sub.PIPE, stderr=sub.PIPE, shell=True)
             output, errors = p.communicate()
             if self.verbose is True:
                 print output
@@ -157,7 +157,9 @@ class EasyRunner(object):
     def _build_command(self, target_file):
         prefixes = ' '.join(self.command_prefixes)
         suffixes = ' '.join(self.command_suffixes)
-        return self.command + ' '.join([prefixes, target_file, suffixes])
+        return '{0} {1}'.format(
+            self.command,
+            ' '.join([prefixes, target_file, suffixes]))
 
     def _handle_output(self, target_file, output):
         # Override me
