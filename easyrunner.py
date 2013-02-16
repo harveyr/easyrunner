@@ -20,11 +20,19 @@ class EasyRunner(object):
 
     cli_args = None
     cli_handlers = []
+    config_parts = []
 
     verbose = False
 
-    fail_re = None
-    success_re = None
+    outcome_re = None
+    pass_count_re = None
+    fail_count_re = None
+    test_log = {
+        'files': {},
+        'passes': 0,
+        'failures': 0,
+        'failed_files': []
+    }
 
     clr = {
         'HEADER': '\033[95m',
@@ -122,6 +130,13 @@ class EasyRunner(object):
             parts = self._get_relative_search_path(f).split('/')
             print '\t' + '/'.join(parts[:-1]) + '/' + self._warn(parts[-1])
 
+        if len(self.config_parts) == 0:
+            return
+
+        colored_config_parts = [self._good(cp) for cp in self.config_parts]
+        config_line = '[ ' + ' | '.join(colored_config_parts) + ' ]'
+        print config_line
+
     def _run_tests(self):
         self.start_time = datetime.datetime.now()
         for t in self.target_files:
@@ -162,6 +177,9 @@ class EasyRunner(object):
             ' '.join([prefixes, target_file, suffixes]))
 
     def _handle_output(self, target_file, output):
+        self._update_log(self, target_file, output)
+
+    def _update_log(self, target_file, output):
         # Override me
         pass
 
@@ -256,6 +274,21 @@ class EasyRunner(object):
         elif arg == '-v':
             self.set_verbose(True)
 
+
+    def print_log(self):
+        if len(self.test_log) == 0:
+            print self._warn('\nNO RESULTS')
+            return
+
+        print self._header('\nRESULTS')
+        for tf in self.target_files:
+            if not tf in self.test_log['files']:
+                continue
+
+            print self._status(tf)
+            print ' - ' + ' | '.join(self.test_log['files'][tf])
+
+
     def _finish(self):
         pass
 
@@ -284,6 +317,7 @@ class EasyRunner(object):
         sys.exit()
 
 
+
 class NoseRunner(EasyRunner):
     def __init__(self):
         self.set_title('Nose Runny')
@@ -291,19 +325,8 @@ class NoseRunner(EasyRunner):
 
 
 class BehatRunner(EasyRunner):
-    test_log = {
-        'features': {},
-        'passes': 0,
-        'failures': 0,
-        'failed_features': []
-    }
-
     features = []
     config_file = None
-
-    outcome_re = None
-    pass_count_re = None
-    fail_count_re = None
 
     tags = set()
 
@@ -318,26 +341,6 @@ class BehatRunner(EasyRunner):
         
         self.add_required_regex(r'.*feature$')
 
-    def print_prompt_msg(self):
-        print self._status('The following feature files will be run:')
-        for f in self.target_files:
-            parts = self._get_relative_search_path(f).split('/')
-            print '\t' + '/'.join(parts[:-1]) + '/' + self._warn(parts[-1])
-
-        config_line = '[ ' + self._good(self.config_file)
-
-        if len(self.tags) > 0:
-            config_line += ' | '
-            for t in self.tags:
-                config_line += self._good('@{0} '.format(t))
-
-        if self.verbose is True:
-            config_line += ' | ' + self._good('verbose')
-
-        config_line += ' ]'
-        print config_line
-
-
     def _handle_output(self, feature_file, output):
         # if re.search(r'Error:', output) is not None:
         if 'Error:' in output:
@@ -348,6 +351,9 @@ class BehatRunner(EasyRunner):
         self.print_tally()
 
     def _update_log(self, feature_file, output):
+        if self.outcome_re is None:
+            return
+
         outcome = self.outcome_re.findall(output)
 
         if len(outcome) > 0:
@@ -380,6 +386,10 @@ class BehatRunner(EasyRunner):
 
         if len(self.tags) > 0:
             self.add_suffix('--tags ' + ','.join(self.tags))
+
+            for t in self.tags:
+                self.config_parts.append('@{0}'.format(t))
+
         
     def _extract_config_file(self):
         if '-c' in self.cli_args:
@@ -416,20 +426,6 @@ class BehatRunner(EasyRunner):
                 ', '.join(self.test_log['failed_features'])))
         print '------'
 
-    def print_log(self):
-        if len(self.test_log) == 0:
-            print self._warn('\nNO RESULTS')
-            return
-
-        print self._header('\nRESULTS')
-        for feature in self.target_files:
-            if not feature in self.test_log['features']:
-                continue
-
-            print self._status(feature)
-            print ' - ' + ' | '.join(self.test_log['features'][feature])
-            # for r in l['results']:
-            #     print ' - ' + r
 if __name__ == '__main__':
     if '--behat' in sys.argv:
         runner = BehatRunner()
