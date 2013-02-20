@@ -357,7 +357,7 @@ class BehatRunner(EasyRunner):
         outcome = self.outcome_re.findall(output)
 
         if len(outcome) > 0:
-            self.test_log['features'][feature_file] = outcome
+            self.test_log['files'][feature_file] = outcome
             pass_count = self.pass_count_re.findall(outcome[0])
             if (len(pass_count) > 0):
                 self.test_log['passes'] += int(pass_count[0])
@@ -366,7 +366,7 @@ class BehatRunner(EasyRunner):
             if (len(fail_count) > 0):
                 self.test_log['failures'] += int(fail_count[0])
                 f_name = feature_file.split('/')[-1]
-                self.test_log['failed_features'].append(f_name)
+                self.test_log['failed_files'].append(f_name)
                 print output
 
     def _process_cli_args(self):
@@ -401,6 +401,9 @@ class BehatRunner(EasyRunner):
         path = os.path.join(self.command_path, self.config_file)
         if not os.path.isfile(path):
             print self._bad('Bad config file: ' + path)
+        
+        self.config_parts.append(self.config_file)
+
 
     def _finish(self):
         self.print_log()
@@ -410,7 +413,7 @@ class BehatRunner(EasyRunner):
         fail_str = self._bad('{0} failures'.format(self.test_log['failures']))
 
         f_count_str = self._status('{0}/{1} features'.format(
-            len(self.test_log['features']),
+            len(self.test_log['files']),
             len(self.target_files)))
 
         print '------'
@@ -421,9 +424,9 @@ class BehatRunner(EasyRunner):
             self._status(self.time_passed()),
             f_count_str)
 
-        if len(self.test_log['failed_features']) > 0:
+        if len(self.test_log['failed_files']) > 0:
             print self._warn('Failures: {0}'.format(
-                ', '.join(self.test_log['failed_features'])))
+                ', '.join(self.test_log['failed_files'])))
         print '------'
 
 if __name__ == '__main__':
