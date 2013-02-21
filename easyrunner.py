@@ -16,6 +16,7 @@ class EasyRunner(object):
     file_optional_res = set()
     file_required_res = set()
     target_files = []
+    use_all_files = False
     start_time = None
 
     cli_args = None
@@ -134,8 +135,11 @@ class EasyRunner(object):
             return
 
         colored_config_parts = [self._good(cp) for cp in self.config_parts]
-        config_line = '[ ' + ' | '.join(colored_config_parts) + ' ]'
-        print config_line
+        config_str = '[ ' + ' | '.join(colored_config_parts) + ' ]'
+        print '{0} {1} {2}'.format(
+            self._status('Targets:'),
+            self._warn(str(len(self.target_files))),
+            config_str)
 
     def _run_tests(self):
         self.start_time = datetime.datetime.now()
@@ -210,39 +214,41 @@ class EasyRunner(object):
             for root, subFolders, files in os.walk(path):
                 count = 0
                 for f in files:
-                    skip = False
                     total_file_count += 1
-                    # print root + '    ' + f
-                    f_path = os.path.join(root,f)
-                    # Check if it fails any of the required patterns
-                    for r in self.file_required_res:
-                        if not r.search(f_path):
-                            # print f_path + ' failed ' + r.pattern
-                            skip = True
-                    if skip:
-                        continue
-                    
-                    # Make sure it matches at least one optional pattern.
-                    # (And handle the case when only required patterns are
-                    # provided.)
-                    if len(self.file_optional_res) > 0:
-                        skip = True
-                    for r in self.file_optional_res:
-                        if r.search(f_path) is not None:
-                            skip = False
-                            break
-
-                    if skip is not True:
-                        self.target_files.append(f_path)
+                    file_path = os.path.join(root, f)
+                    if self._evaluate_candidate_file(file_path):
+                        self.target_files.append(file_path)
                         count += 1
-                s = '\t' + root
+                
+                root_path_str = '\t' + root
                 if count == 0:
-                    print s
+                    print root_path_str
                 else:
-                    print self._status(s + ' [{0}]'.format(count))
+                    print self._status(root_path_str + ' [{0}]'.format(count))
 
         print '... finished searching {0} files.\n'.format(
             total_file_count)
+
+    def _evaluate_candidate_file(self, file_path):
+            skip = False
+            # Check if it fails any of the required patterns
+            for r in self.file_required_res:
+                if not r.search(file_path):
+                    return False
+
+            # If all required patterns match and the --all flag has been passed,
+            # return True
+            if self.use_all_files is True:
+                return True
+
+            # Make sure it matches at least one optional pattern.
+            # (And handle the case when only required patterns are
+            # provided.)
+            for r in self.file_optional_res:
+                if r.search(file_path) is not None:
+                    return True
+
+            return False
 
     def _validate(self):
         # if not self.command_path:
@@ -271,6 +277,9 @@ class EasyRunner(object):
             self.add_optional_regex(self.cli_args[idx + 1])
         elif arg == '-rp':
             self.add_required_regex(self.cli_args[idx + 1])
+        elif arg == '--all':
+            self.use_all_files = True
+            self.config_parts.append(arg)
         elif arg == '-v':
             self.set_verbose(True)
 
@@ -402,7 +411,7 @@ class BehatRunner(EasyRunner):
         if not os.path.isfile(path):
             print self._bad('Bad config file: ' + path)
         
-        self.config_parts.append(self.config_file)
+        self.config_parts.insert(0, self.config_file)
 
 
     def _finish(self):
