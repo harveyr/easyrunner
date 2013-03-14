@@ -147,10 +147,14 @@ class EasyRunner(object):
 
         numbers = []
         parts = c.split(' ') + c.split(',')
-        print 'parts: ' + str(parts)
+
         for part in parts:
             try:
                 num = int(part)
+                if num < 1 or num > len(self.target_files):
+                    print self._bad(('That number is not in the list, is it? ' +
+                        'Try again.\n'))
+                    return self.prompt_user()
                 if num not in numbers:
                     numbers.append(num)
             except Exception as e:
