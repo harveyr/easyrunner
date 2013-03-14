@@ -125,8 +125,10 @@ class EasyRunner(object):
             )
             count += 1
 
-        if len(self.config_parts) == 0:
-            return
+        if self.verbose == True:
+            self.config_parts.append('verbose')
+        else:
+            self.config_parts.append('silent')
 
         colored_config_parts = [self._good(cp) for cp in self.config_parts]
         config_str = '[ ' + ' | '.join(colored_config_parts) + ' ]'
@@ -179,9 +181,13 @@ class EasyRunner(object):
 
         try:
             p = sub.Popen(cmd, stdout=sub.PIPE, stderr=sub.PIPE, shell=True)
-            output, errors = p.communicate()
             if self.verbose is True:
-                print output
+                for line in iter(p.stdout.readline, ""):
+                    print line.rstrip()
+
+            output, errors = p.communicate()
+            # if self.verbose is True:
+            #     print output
             if errors:
                 print errors
 
@@ -306,7 +312,7 @@ class EasyRunner(object):
         elif arg == '--all':
             self.use_all_files = True
             self.config_parts.append(arg)
-        elif arg == '-v':
+        elif arg == '-v' or arg == '--verbose':
             self.set_verbose(True)
 
 
