@@ -94,16 +94,6 @@ class EasyRunner(object):
         diff = datetime.datetime.now() - self.start_time
         return str(diff).split('.')[0]
 
-    def prompt_user(self):
-        try:
-            c = raw_input(self._status('\nContinue? [Y/n] '))
-        except:
-            self._quit()
-        if c.lower()[:1] == 'n':
-            self._quit()
-
-        return True
-
     def run(self):
         self.print_title()
         self._validate()
@@ -116,8 +106,6 @@ class EasyRunner(object):
         if self.command_path:
             os.chdir(self.command_path)
         
-        self.print_prompt_msg()
-        
         if self.prompt_user():
             self._run_tests()
             self._finish()
@@ -127,9 +115,15 @@ class EasyRunner(object):
 
     def print_prompt_msg(self):
         print self._status('Target Files:')
+        count = 1
         for f in self.target_files:
             parts = self._get_relative_search_path(f).split('/')
-            print '\t' + '/'.join(parts[:-1]) + '/' + self._warn(parts[-1])
+            number_prefix = "[{0}]".format(count)
+            print "\t{0}: {1}".format(
+                number_prefix,
+                ('/'.join(parts[:-1]) + '/' + self._warn(parts[-1]))
+            )
+            count += 1
 
         if len(self.config_parts) == 0:
             return
@@ -140,6 +134,34 @@ class EasyRunner(object):
             self._status('Targets:'),
             self._warn(str(len(self.target_files))),
             config_str)
+
+    def prompt_user(self):
+        self.print_prompt_msg()
+
+        try:
+            c = raw_input(self._status('\nContinue? [Y/n, or #s of files] '))
+        except:
+            self._quit()
+        if c.lower()[:1] == 'n':
+            self._quit()
+
+        numbers = []
+        parts = c.split(' ') + c.split(',')
+        print 'parts: ' + str(parts)
+        for part in parts:
+            try:
+                num = int(part)
+                if num not in numbers:
+                    numbers.append(num)
+            except Exception as e:
+                pass
+
+        if len(numbers) > 0:
+            filtered = [self.target_files[i-1] for i in numbers]
+            self.target_files = filtered
+            return self.prompt_user()
+
+        return True
 
     def _run_tests(self):
         self.start_time = datetime.datetime.now()
@@ -410,7 +432,9 @@ class BehatRunner(EasyRunner):
         path = os.path.join(self.command_path, self.config_file)
         if not os.path.isfile(path):
             print self._bad('Bad config file: ' + path)
-        
+            self._quit()
+
+        self.add_prefix('-c ' + self.config_file)
         self.config_parts.insert(0, self.config_file)
 
 
