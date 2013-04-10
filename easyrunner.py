@@ -25,14 +25,13 @@ class EasyRunner(object):
 
     verbose = False
 
-    outcome_re = None
     pass_count_re = None
     fail_count_re = None
     test_log = {
         'files': {},
         'passes': 0,
         'failures': 0,
-        'failed_files': []
+        'failed_tests': []
     }
 
     clr = {
@@ -94,6 +93,14 @@ class EasyRunner(object):
         diff = datetime.datetime.now() - self.start_time
         return str(diff).split('.')[0]
 
+    def log_failure(self, target):
+        self.test_log['failures'] += 1
+        if target not in self.test_log['failed_tests']:
+            self.test_log['failed_tests'].append(target)
+
+    def log_pass(self):
+        self.test_log['passes'] += 1
+
     def run(self):
         self.print_title()
         self._validate()
@@ -106,9 +113,7 @@ class EasyRunner(object):
         if self.command_path:
             os.chdir(self.command_path)
         
-        if self.prompt_user():
-            self._run_tests()
-            self._finish()
+        self.prompt_user()
 
     def print_title(self):
         print self._header('\n----- ' + self.title + ' -----\n')
@@ -125,10 +130,20 @@ class EasyRunner(object):
             )
             count += 1
 
-        if self.verbose == True:
-            self.config_parts.append('verbose')
+        if self.verbose != True:
+            if 'silent' not in self.config_parts:
+                self.config_parts.append('silent')
+            try:
+                self.config_parts.remove('verbose')
+            except:
+                pass
         else:
-            self.config_parts.append('silent')
+            if 'verbose' not in self.config_parts:
+                self.config_parts.append('verbose')
+            try:
+                self.config_parts.remove('silent')
+            except:
+                pass
 
         colored_config_parts = [self._good(cp) for cp in self.config_parts]
         config_str = '[ ' + ' | '.join(colored_config_parts) + ' ]'
@@ -137,14 +152,34 @@ class EasyRunner(object):
             self._warn(str(len(self.target_files))),
             config_str)
 
+    def print_commands(self):
+        print
+        print 'Commands'
+        print '--------'
+        print 'Enter\t\t\tRun them'
+        print '# | #,#,#\t\Filter down to the specified target numbers (4 | 2,3,4)'
+        print 'v\t\t\tToggle verbosity mode'
+        print 'q | ^C\t\t\tQuit'
+
     def prompt_user(self):
         self.print_prompt_msg()
 
         try:
-            c = raw_input(self._status('\nContinue? [Y/n, or #s of files] '))
+            print
+            c = raw_input(self._status('Command [? for options]: '))
         except:
             self._quit()
-        if c.lower()[:1] == 'n':
+        c = c.lower()
+        if c == '?':
+            self.print_commands()
+            self.prompt_user()
+            return
+        elif c == 'v':
+            self.verbose = not self.verbose
+            print
+            self.prompt_user()
+            return
+        elif c == 'n' or c == 'q':
             self._quit()
 
         numbers = []
@@ -167,29 +202,31 @@ class EasyRunner(object):
             self.target_files = filtered
             return self.prompt_user()
 
-        return True
+        self._run_tests()
 
     def _run_tests(self):
         self.start_time = datetime.datetime.now()
         for t in self.target_files:
             self._run_command(t)
+        self._finish()
 
     def _run_command(self, target_file):
         cmd = self._build_command(target_file)
 
-        print self._status('\n' + cmd)
+        print '\n' + target_file
+        print self._status(cmd)
 
         try:
             p = sub.Popen(cmd, stdout=sub.PIPE, stderr=sub.PIPE, shell=True)
+            output = ''
             if self.verbose is True:
                 for line in iter(p.stdout.readline, ""):
+                    output += line
                     print line.rstrip()
-
-            output, errors = p.communicate()
-            # if self.verbose is True:
-            #     print output
-            if errors:
-                print errors
+            else:
+                output, errors = p.communicate()
+                if errors:
+                    print errors
 
             self._handle_output(target_file, output)
 
@@ -213,11 +250,51 @@ class EasyRunner(object):
             ' '.join([prefixes, target_file, suffixes]))
 
     def _handle_output(self, target_file, output):
-        self._update_log(self, target_file, output)
+        self.test_log['files'][target_file] = output
+        self._update_log(target_file, output)
+        self.print_tally()
 
     def _update_log(self, target_file, output):
         # Override me
         pass
+
+    def _format_progress_str(self, progress, total):
+        length = 76
+        dashes = int(float(progress) / float(total) * length)
+        
+        buffer = '['
+        for i in range(dashes - 1):
+            buffer += '-'
+        buffer += '>'
+        for i in range(length - dashes):
+            buffer += ' '
+        buffer += ']'
+        return buffer
+
+    def print_tally(self):
+        pass_str = self._good('{0} passed'.format(self.test_log['passes']))
+        fail_str = self._bad('{0} failed'.format(self.test_log['failures']))
+
+        tests_run_count = len(self.test_log['files'])
+        total_count = len(self.target_files)
+
+        f_count_str = self._status('{0}/{1} tests run'.format(
+            tests_run_count,
+            total_count))
+
+        print '\n{0}: {1} | {2}  [{3}] [{4}]'.format(
+            self._header('Test Suite Tally'),
+            pass_str,
+            fail_str,
+            self._status(self.time_passed()),
+            f_count_str)
+
+        if total_count > 1:
+            print self._format_progress_str(tests_run_count, total_count)
+
+        if len(self.test_log['failed_tests']) > 0:
+            print self._warn('Failures:\n{0}'.format(
+                '\n'.join(self.test_log['failed_tests'])))
 
     def _print_search_parameters(self):
         if len(self.file_required_res) + len(self.file_optional_res) == 0:
@@ -368,6 +445,7 @@ class NoseRunner(EasyRunner):
 class BehatRunner(EasyRunner):
     features = []
     config_file = None
+    outcome_re = None
 
     tags = set()
 
@@ -377,38 +455,19 @@ class BehatRunner(EasyRunner):
         self.set_command('bin/behat')
         self.add_suffix('--ansi')
         self.outcome_re = re.compile(r'\d+\Wscenarios?\W\(.+\)')
-        self.pass_count_re = re.compile(r'(\d+) passed', re.I)
-        self.fail_count_re = re.compile(r'(\d+) failed', re.I)
+        self.fail_re = re.compile(r'(\d+) (failed|undefined)', re.I)
         
         self.add_required_regex(r'.*feature$')
 
-    def _handle_output(self, feature_file, output):
-        # if re.search(r'Error:', output) is not None:
-        if 'Error:' in output:
-            print self._bad(output.strip())
-        else:
-            self._update_log(feature_file, output)
-
-        self.print_tally()
-
     def _update_log(self, feature_file, output):
-        if self.outcome_re is None:
-            return
-
         outcome = self.outcome_re.findall(output)
-
         if len(outcome) > 0:
             self.test_log['files'][feature_file] = outcome
-            pass_count = self.pass_count_re.findall(outcome[0])
-            if (len(pass_count) > 0):
-                self.test_log['passes'] += int(pass_count[0])
-
-            fail_count = self.fail_count_re.findall(outcome[0])
-            if (len(fail_count) > 0):
-                self.test_log['failures'] += int(fail_count[0])
-                f_name = feature_file.split('/')[-1]
-                self.test_log['failed_files'].append(f_name)
-                print output
+            failed = self.fail_re.search(outcome[0])
+            if failed is not None:
+                self.log_failure(feature_file)
+            else:
+                self.log_pass()
 
     def _process_cli_args(self):
         super(BehatRunner, self)._process_cli_args()
@@ -449,28 +508,7 @@ class BehatRunner(EasyRunner):
 
 
     def _finish(self):
-        self.print_log()
-
-    def print_tally(self):
-        pass_str = self._good('{0} passes'.format(self.test_log['passes']))
-        fail_str = self._bad('{0} failures'.format(self.test_log['failures']))
-
-        f_count_str = self._status('{0}/{1} features'.format(
-            len(self.test_log['files']),
-            len(self.target_files)))
-
-        print '------'
-        print '{0}: {1} | {2}  [{3}] [{4}]'.format(
-            self._header('Test Suite Tally'),
-            pass_str,
-            fail_str,
-            self._status(self.time_passed()),
-            f_count_str)
-
-        if len(self.test_log['failed_files']) > 0:
-            print self._warn('Failures: {0}'.format(
-                ', '.join(self.test_log['failed_files'])))
-        print '------'
+       pass
 
 if __name__ == '__main__':
     if '--behat' in sys.argv:
