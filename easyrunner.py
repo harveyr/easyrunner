@@ -109,10 +109,10 @@ class EasyRunner(object):
         if len(self.target_files) == 0:
             print self._bad('No matches found.')
             self._quit()
-        
+
         if self.command_path:
             os.chdir(self.command_path)
-        
+
         self.prompt_user()
 
     def print_title(self):
@@ -261,7 +261,7 @@ class EasyRunner(object):
     def _format_progress_str(self, progress, total):
         length = 76
         dashes = int(float(progress) / float(total) * length)
-        
+
         buffer = '['
         for i in range(dashes - 1):
             buffer += '-'
@@ -328,7 +328,7 @@ class EasyRunner(object):
                     if self._evaluate_candidate_file(file_path):
                         self.target_files.append(file_path)
                         count += 1
-                
+
                 root_path_str = '\t' + root
                 if count == 0:
                     print root_path_str
@@ -455,19 +455,20 @@ class BehatRunner(EasyRunner):
         self.set_command('bin/behat')
         self.add_suffix('--ansi')
         self.outcome_re = re.compile(r'\d+\Wscenarios?\W\(.+\)')
-        self.fail_re = re.compile(r'(\d+) (failed|undefined)', re.I)
-        
+        self.fail_re = re.compile(r'(execution failed)|(Exception has been thrown)|((\d+) (failed|undefined))', re.I)
+
         self.add_required_regex(r'.*feature$')
 
     def _update_log(self, feature_file, output):
         outcome = self.outcome_re.findall(output)
         if len(outcome) > 0:
             self.test_log['files'][feature_file] = outcome
-            failed = self.fail_re.search(outcome[0])
-            if failed is not None:
-                self.log_failure(feature_file)
-            else:
-                self.log_pass()
+
+        failed = self.fail_re.search(output)
+        if failed is not None:
+            self.log_failure(feature_file)
+        else:
+            self.log_pass()
 
     def _process_cli_args(self):
         super(BehatRunner, self)._process_cli_args()
@@ -490,7 +491,7 @@ class BehatRunner(EasyRunner):
             for t in self.tags:
                 self.config_parts.append('@{0}'.format(t))
 
-        
+
     def _extract_config_file(self):
         if '-c' in self.cli_args:
             idx = self.cli_args.index('-c')
@@ -515,7 +516,7 @@ if __name__ == '__main__':
         runner = BehatRunner()
         runner.set_cli_args(sys.argv)
         runner.run()
-    
+
     if '--nose' in sys.argv:
         runner = NoseRunner()
         runner.set_cli_args(sys.argv)
