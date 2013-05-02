@@ -5,6 +5,16 @@ import subprocess as sub
 import re
 import urllib2
 import pickle
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+LOGHANDLER = logging.StreamHandler()
+# LOGFORMATTER = logging.Formatter('%(asctime)s - [%(name)s:%(lineno)d] - %(levelname)s - %(message)s')
+LOGFORMATTER = logging.Formatter('[%(name)s:%(lineno)d] - %(levelname)s - %(message)s')
+LOGHANDLER.setFormatter(LOGFORMATTER)
+LOGHANDLER.setLevel(logging.DEBUG)
+logger.addHandler(LOGHANDLER)
 
 class EasyRunner(object):
     title = 'EasyRunner'
@@ -127,11 +137,11 @@ class EasyRunner(object):
         print self._status('Target Files:')
         count = 1
         for f in self.target_files:
-            parts = self._get_relative_search_path(f).split('/')
             number_prefix = "[{0}]".format(count)
+            parts = os.path.split(self.get_path_rel_to_command_path(f))
             print "\t{0}: {1}".format(
                 number_prefix,
-                ('/'.join(parts[:-1]) + '/' + self._warn(parts[-1]))
+                (parts[0] + '/' + self._warn(parts[1]))
             )
             count += 1
 
@@ -235,7 +245,8 @@ class EasyRunner(object):
     def prompt_resume_state(self):
         try:
             print
-            c = raw_input(self._status('Re-run last batch?'))
+            c = raw_input(
+                self._status("Hit anything but 'q' to re-run last batch: "))
         except:
             self._quit()
         c = c.lower()
@@ -290,7 +301,7 @@ class EasyRunner(object):
     def run_command(self, target_file):
         cmd = self.build_command(target_file)
 
-        print '\n' + self._warn(self.get_relative_path(target_file))
+        print '\n' + self._warn(self.get_path_rel_to_command_path(target_file))
         print cmd
 
         try:
@@ -335,7 +346,7 @@ class EasyRunner(object):
         # Override me
         pass
 
-    def _format_progress_str(self, progress, total):
+    def format_progress_str(self, progress, total):
         length = 76
         dashes = int(float(progress) / float(total) * length)
 
@@ -367,7 +378,7 @@ class EasyRunner(object):
             f_count_str)
 
         if total_count > 1:
-            print self._format_progress_str(tests_run_count, total_count)
+            print self.format_progress_str(tests_run_count, total_count)
 
         if len(self.test_log['failed_tests']) > 0:
             print self._warn('Failures:\n{0}'.format(
@@ -426,6 +437,9 @@ class EasyRunner(object):
         # If all required patterns match and the --all flag has been passed,
         # return True
         if self.use_all_files is True:
+            return True
+
+        if len(self.file_optional_res) == 0:
             return True
 
         # Make sure it matches at least one optional pattern.
@@ -492,21 +506,13 @@ class EasyRunner(object):
             print self._status(tf)
             print ' - ' + ' | '.join(self.test_log['files'][tf])
 
-    def get_relative_path(self, file_path):
-        if self.command_path is None:
-            return file_path
-        if self.command_path not in file_path:
-            return file_path
-        return file_path.split(self.command_path + '/')[1]
-
-
     def finish(self):
         pass
 
-    def _get_relative_search_path(self, file_path):
-        for path in self.search_paths:
-            if path in file_path:
-                return file_path.split(path)[1][1:]
+    def get_path_rel_to_command_path(self, file_path):
+        if self.command_path in file_path:
+            return file_path.split(self.command_path)[1][1:]
+        return file_path
 
     def _status(self, text):
         return self.clr.get('BLUE') + text + self.clr.get('ENDC')
