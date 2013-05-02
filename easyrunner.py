@@ -113,12 +113,13 @@ class EasyRunner(object):
         if self.command_path:
             os.chdir(self.command_path)
 
+        self.print_test_scope()
         self.prompt_user()
 
     def print_title(self):
         print self._header('\n----- ' + self.title + ' -----\n')
 
-    def print_prompt_msg(self):
+    def print_test_scope(self):
         print self._status('Target Files:')
         count = 1
         for f in self.target_files:
@@ -154,16 +155,15 @@ class EasyRunner(object):
 
     def print_commands(self):
         print
-        print 'Commands'
+        print self._status('Commands')
         print '--------'
-        print 'Enter\t\t\tRun them'
-        print '# | #,#,#\t\Filter down to the specified target numbers (4 | 2,3,4)'
-        print 'v\t\t\tToggle verbosity mode'
-        print 'q | ^C\t\t\tQuit'
+        print 'Enter\t\tRun the listed test files'
+        print '#, #, #-#\tLimit to specified file numbers'
+        print 'v\t\tToggle verbosity mode'
+        print 'q | ^C\t\tQuit'
+
 
     def prompt_user(self):
-        self.print_prompt_msg()
-
         try:
             print
             c = raw_input(self._status('Command [? for options]: '))
@@ -171,21 +171,30 @@ class EasyRunner(object):
             self._quit()
         c = c.lower()
         if c == '?':
+            self.print_test_scope()
             self.print_commands()
             self.prompt_user()
             return
         elif c == 'v':
             self.verbose = not self.verbose
             print
+            self.print_test_scope()
             self.prompt_user()
             return
         elif c == 'n' or c == 'q':
             self._quit()
 
         numbers = []
-        parts = c.split(' ') + c.split(',')
+        parts = [part.strip() for part in c.split(',')]
 
         for part in parts:
+            if '-' in part:
+                span_parts = part.split('-')
+                start = int(span_parts[0])
+                end = int(span_parts[1])
+                for i in range(start, end + 1):
+                    numbers.append(i)
+                continue
             try:
                 num = int(part)
                 if num < 1 or num > len(self.target_files):
@@ -200,7 +209,9 @@ class EasyRunner(object):
         if len(numbers) > 0:
             filtered = [self.target_files[i-1] for i in numbers]
             self.target_files = filtered
-            return self.prompt_user()
+            self.print_test_scope()
+            self.prompt_user()
+            return
 
         self._run_tests()
 
