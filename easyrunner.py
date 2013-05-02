@@ -4,6 +4,7 @@ import datetime
 import subprocess as sub
 import re
 import urllib2
+import pickle
 
 class EasyRunner(object):
     title = 'EasyRunner'
@@ -48,7 +49,7 @@ class EasyRunner(object):
 
     def set_cli_args(self, args):
         self.cli_args = args
-        self._process_cli_args()
+        self.process_cli_args()
 
     def set_base_path(self, path):
         self.base_path = path
@@ -103,18 +104,20 @@ class EasyRunner(object):
 
     def run(self):
         self.print_title()
-        self._validate()
-        self._find_target_files()
 
-        if len(self.target_files) == 0:
-            print self._bad('No matches found.')
-            self._quit()
+        # If no CLI args, try to resume state of the last time this was run
+        if len(self.cli_args) == 1:
+            self.resume_state()
+        else:
+            self.validate()
+            self.find_target_files()
 
-        if self.command_path:
-            os.chdir(self.command_path)
+            if len(self.target_files) == 0:
+                print self._bad('No matches found.')
+                self._quit()
 
-        self.print_test_scope()
-        self.prompt_user()
+            self.print_test_scope()
+            self.prompt_user()
 
     def print_title(self):
         print self._header('\n----- ' + self.title + ' -----\n')
@@ -213,13 +216,63 @@ class EasyRunner(object):
             self.prompt_user()
             return
 
-        self._run_tests()
+        self.save_state()
+        self.run_tests()
 
-    def _run_tests(self):
+    def prompt_resume_state(self):
+        try:
+            print
+            c = raw_input(self._status('Re-run last batch?'))
+        except:
+            self._quit()
+        c = c.lower()
+        if c == 'q' or c == 'n':
+            self._quit()
+        self.run_tests()
+
+
+    def get_state_save_path(self):
+        filename = '.{0}_state'.format(
+            ('_'.join(self.title.split(' '))).lower())
+        script_path = '/'.join(os.path.realpath(__file__).split('/')[:-1])
+        return os.path.join(script_path, filename)
+
+    def load_state(self):
+        try:
+            with open(self.get_state_save_path()) as f:
+                return pickle.load(f)
+        except IOError as e:
+            return False
+
+    def save_state(self):
+        state = {
+            'files': self.target_files,
+            'verbose': self.verbose
+        }
+        child_state = self.get_state()
+        for key in child_state:
+            state[key] = child_state[key]
+
+        f = file(self.get_state_save_path(), "w")
+        pickle.dump(state, f)
+
+    def get_state(self):
+        """Override me"""
+        return {}
+
+    def apply_state(self, state_obj):
+        """Override me"""
+        pass
+
+    def run_tests(self):
+        if self.command_path:
+            os.chdir(self.command_path)
+
         self.start_time = datetime.datetime.now()
         for t in self.target_files:
             self._run_command(t)
         self._finish()
+
 
     def _run_command(self, target_file):
         cmd = self._build_command(target_file)
@@ -326,7 +379,7 @@ class EasyRunner(object):
             s += ' | '.join(pats)
             print s
 
-    def _find_target_files(self):
+    def find_target_files(self):
         self._print_search_parameters()
         print self._status('Searching...')
         total_file_count = 0
@@ -336,7 +389,7 @@ class EasyRunner(object):
                 for f in files:
                     total_file_count += 1
                     file_path = os.path.join(root, f)
-                    if self._evaluate_candidate_file(file_path):
+                    if self.evaluate_candidate_file(file_path):
                         self.target_files.append(file_path)
                         count += 1
 
@@ -349,41 +402,38 @@ class EasyRunner(object):
         print '... finished searching {0} files.\n'.format(
             total_file_count)
 
-    def _evaluate_candidate_file(self, file_path):
-            skip = False
-            # Check if it fails any of the required patterns
-            for r in self.file_required_res:
-                if not r.search(file_path):
-                    return False
+    def evaluate_candidate_file(self, file_path):
+        """Returns True if test file matches filter params."""
+        skip = False
+        # Check if it fails any of the required patterns
+        for r in self.file_required_res:
+            if not r.search(file_path):
+                return False
 
-            # If all required patterns match and the --all flag has been passed,
-            # return True
-            if self.use_all_files is True:
+        # If all required patterns match and the --all flag has been passed,
+        # return True
+        if self.use_all_files is True:
+            return True
+
+        # Make sure it matches at least one optional pattern.
+        # (And handle the case when only required patterns are
+        # provided.)
+        for r in self.file_optional_res:
+            if r.search(file_path) is not None:
                 return True
 
-            # Make sure it matches at least one optional pattern.
-            # (And handle the case when only required patterns are
-            # provided.)
-            for r in self.file_optional_res:
-                if r.search(file_path) is not None:
-                    return True
+        return False
 
-            return False
-
-    def _validate(self):
-        # if not self.command_path:
-        #     print self._bad("I don't have a command path!")
-        #     self._quit()
-
+    def validate(self):
+        """Make sure necessary paths exist."""
         paths = self.search_paths.copy()
         paths.add(self.command_path)
-        # paths.add(self.command_path)
         for p in paths:
             if not os.path.isdir(p):
                 self._bad('Bad path: ' + p)
                 self._quit()
 
-    def _process_cli_args(self):
+    def process_cli_args(self):
         for a in self.cli_args[1:]:
             self._process_cli_arg(a)
 
@@ -402,6 +452,17 @@ class EasyRunner(object):
             self.config_parts.append(arg)
         elif arg == '-v' or arg == '--verbose':
             self.set_verbose(True)
+
+    def resume_state(self):
+        state_obj = self.load_state()
+        if not state_obj:
+            print 'No arguments. Need to add a usage statement.'
+            self._quit()
+        self.target_files = state_obj.get('files')
+        self.verbose = state_obj.get('verbose')
+        self.apply_state(state_obj)
+        self.print_test_scope()
+        self.prompt_resume_state()
 
 
     def print_log(self):
@@ -470,6 +531,15 @@ class BehatRunner(EasyRunner):
 
         self.add_required_regex(r'.*feature$')
 
+    def get_state(self):
+        return {
+            'tags': self.tags
+        }
+
+    def apply_state(self, state_obj):
+        self.tags = state_obj.get('tags')
+        self.add_tag_suffix()
+
     def _update_log(self, feature_file, output):
         outcome = self.outcome_re.findall(output)
         if len(outcome) > 0:
@@ -481,8 +551,8 @@ class BehatRunner(EasyRunner):
         else:
             self.log_pass()
 
-    def _process_cli_args(self):
-        super(BehatRunner, self)._process_cli_args()
+    def process_cli_args(self):
+        super(BehatRunner, self).process_cli_args()
         self._extract_tags()
         self._extract_config_file()
 
@@ -496,6 +566,9 @@ class BehatRunner(EasyRunner):
             if a[:1] == '@':
                 self.tags.add(a[1:])
 
+        self.add_tag_suffix()
+
+    def add_tag_suffix(self):
         if len(self.tags) > 0:
             self.add_suffix('--tags ' + ','.join(self.tags))
 
