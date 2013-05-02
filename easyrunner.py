@@ -123,6 +123,7 @@ class EasyRunner(object):
         print self._header('\n----- ' + self.title + ' -----\n')
 
     def print_test_scope(self):
+        """Print the target files and related parameters (verbosity, etc.)"""
         print self._status('Target Files:')
         count = 1
         for f in self.target_files:
@@ -157,14 +158,27 @@ class EasyRunner(object):
             config_str)
 
     def print_commands(self):
-        print
-        print self._status('Commands')
-        print '--------'
-        print 'Enter\t\tRun the listed test files'
-        print '#, #, #-#\tLimit to specified file numbers'
-        print 'v\t\tToggle verbosity mode'
-        print 'q | ^C\t\tQuit'
+        command_sets = [
+            ('Enter', 'Run the listed test files'),
+            ('#, #, #-#', 'Limit to specified file numbers'),
+            ('v', 'Toggle verbosity mode'),
+            ('q | ^C', 'Quit')
+        ]
 
+        max_command_len = 0
+        for command_set in command_sets:
+            if len(command_set[0]) > max_command_len:
+                max_command_len = len(command_set[0])
+
+        max_command_len += 5
+        for command_set in command_sets:
+            command_ = command_set[0]
+            c_len = len(command_)
+            print '{0}{1}{2}'.format(
+                command_,
+                ' '.join('' for i in range(max_command_len - c_len)),
+                command_set[1]
+            )
 
     def prompt_user(self):
         try:
@@ -210,8 +224,7 @@ class EasyRunner(object):
                 pass
 
         if len(numbers) > 0:
-            filtered = [self.target_files[i-1] for i in numbers]
-            self.target_files = filtered
+            self.target_files = [self.target_files[i-1] for i in numbers]
             self.print_test_scope()
             self.prompt_user()
             return
@@ -270,15 +283,15 @@ class EasyRunner(object):
 
         self.start_time = datetime.datetime.now()
         for t in self.target_files:
-            self._run_command(t)
-        self._finish()
+            self.run_command(t)
+        self.finish()
 
 
-    def _run_command(self, target_file):
-        cmd = self._build_command(target_file)
+    def run_command(self, target_file):
+        cmd = self.build_command(target_file)
 
-        print '\n' + target_file
-        print self._status(cmd)
+        print '\n' + self._warn(self.get_relative_path(target_file))
+        print cmd
 
         try:
             p = sub.Popen(cmd, stdout=sub.PIPE, stderr=sub.PIPE, shell=True)
@@ -292,7 +305,7 @@ class EasyRunner(object):
                 if errors:
                     print errors
 
-            self._handle_output(target_file, output)
+            self.handle_output(target_file, output)
 
         except KeyboardInterrupt:
             if p:
@@ -306,19 +319,19 @@ class EasyRunner(object):
         #     print self._bad('Exception: ') + str(e)
 
 
-    def _build_command(self, target_file):
+    def build_command(self, target_file):
         prefixes = ' '.join(self.command_prefixes)
         suffixes = ' '.join(self.command_suffixes)
         return '{0} {1}'.format(
             self.command,
             ' '.join([prefixes, target_file, suffixes]))
 
-    def _handle_output(self, target_file, output):
+    def handle_output(self, target_file, output):
         self.test_log['files'][target_file] = output
-        self._update_log(target_file, output)
+        self.update_log(target_file, output)
         self.print_tally()
 
-    def _update_log(self, target_file, output):
+    def update_log(self, target_file, output):
         # Override me
         pass
 
@@ -360,7 +373,7 @@ class EasyRunner(object):
             print self._warn('Failures:\n{0}'.format(
                 '\n'.join(self.test_log['failed_tests'])))
 
-    def _print_search_parameters(self):
+    def print_search_parameters(self):
         if len(self.file_required_res) + len(self.file_optional_res) == 0:
             self._bad('No search patterns provided.')
             self._quit()
@@ -380,7 +393,7 @@ class EasyRunner(object):
             print s
 
     def find_target_files(self):
-        self._print_search_parameters()
+        self.print_search_parameters()
         print self._status('Searching...')
         total_file_count = 0
         for path in self.search_paths:
@@ -460,7 +473,8 @@ class EasyRunner(object):
             self._quit()
         self.target_files = state_obj.get('files')
         self.verbose = state_obj.get('verbose')
-        self.apply_state(state_obj)
+        if hasattr(self, 'apply_state'):
+            self.apply_state(state_obj)
         self.print_test_scope()
         self.prompt_resume_state()
 
@@ -478,8 +492,15 @@ class EasyRunner(object):
             print self._status(tf)
             print ' - ' + ' | '.join(self.test_log['files'][tf])
 
+    def get_relative_path(self, file_path):
+        if self.command_path is None:
+            return file_path
+        if self.command_path not in file_path:
+            return file_path
+        return file_path.split(self.command_path + '/')[1]
 
-    def _finish(self):
+
+    def finish(self):
         pass
 
     def _get_relative_search_path(self, file_path):
@@ -540,7 +561,7 @@ class BehatRunner(EasyRunner):
         self.tags = state_obj.get('tags')
         self.add_tag_suffix()
 
-    def _update_log(self, feature_file, output):
+    def update_log(self, feature_file, output):
         outcome = self.outcome_re.findall(output)
         if len(outcome) > 0:
             self.test_log['files'][feature_file] = outcome
@@ -592,7 +613,7 @@ class BehatRunner(EasyRunner):
         self.config_parts.insert(0, self.config_file)
 
 
-    def _finish(self):
+    def finish(self):
        pass
 
 if __name__ == '__main__':
