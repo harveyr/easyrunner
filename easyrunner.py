@@ -909,7 +909,7 @@ class EasyRunner(object):
         win.addstr(y, x, 'Test Results', ch.highlight_cpair)
         y += 1
 
-        win.addstr('[')
+        win.addstr(y, x, '[')
         cpair = ch.red_cpair
         if fail_count == 0:
             cpair = ch.green_cpair
@@ -1134,8 +1134,8 @@ class EasyRunner(object):
         for thread in self.test_threads:
             thread.stop()
 
-        with open(log_f, 'r') as f:
-            print(f.read())
+        # with open(log_f, 'r') as f:
+        #     print(f.read())
 
         sys.exit()
 
