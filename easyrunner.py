@@ -1,3 +1,7 @@
+# TODO
+# - Paging through failures
+
+
 import os
 import sys
 import datetime
@@ -16,28 +20,16 @@ import textwrap
 import curses
 from curses import ascii, panel
 import logging
-from logging.handlers import RotatingFileHandler
+from logging import FileHandler
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-LOGFORMATTER = logging.Formatter('[%(name)s:%(lineno)d] - %(levelname)s - %(message)s')
-
-# LOGHANDLER = logging.StreamHandler()
-# LOGHANDLER.setFormatter(LOGFORMATTER)
-# LOGHANDLER.setLevel(logging.DEBUG)
-# logger.addHandler(LOGHANDLER)
-
-log_f = tempfile.mkstemp(suffix='.log', prefix='easyrunner-')[1]
-FILEHANDLER = RotatingFileHandler(
-    log_f,
-    maxBytes=1000000,
-    backupCount=3)
-FILEHANDLER.setFormatter(LOGFORMATTER)
-FILEHANDLER.setLevel(logging.DEBUG)
-logger.addHandler(FILEHANDLER)
 
 TEST_SCOPE_VIEW_MODE = 0
 TEST_STATUS_VIEW_MODE = 1
+
+FILENAME_SEARCH_MODE = 0
+TESTNAME_SEARCH_MODE = 1
 
 def is_int(s):
     try:
@@ -98,7 +90,7 @@ class CursesHelper(object):
         try:
             win.addstr(y, x, s, pair)
         except curses.error, e:
-            logger.debug('curses error ' + str(e))
+            pass
 
     def addnstr(self, y, x, s, n, pair=None):
         if pair is None:
@@ -106,7 +98,7 @@ class CursesHelper(object):
         try:
             self.window.addnstr(y, x, s, n, pair)
         except curses.error, e:
-            logger.debug('curses error ' + str(e))
+            pass
 
     def get_window(self):
         return self.window
@@ -121,9 +113,9 @@ class CursesHelper(object):
         if not hasattr(self.panels, panel_key):
             win_h, win_w = self.get_size()
             if nlines is None:
-                nlines = int(win_h / 1.5)
+                nlines = int(win_h / 1.3)
             if ncols is None:
-                ncols = int(win_w / 1.5)
+                ncols = int(win_w / 1.3)
             if begin_y is None:
                 begin_y = int((win_h - nlines) / 2)
             if begin_x is None:
@@ -138,10 +130,11 @@ class CursesHelper(object):
         return self.panels[panel_key]
 
 class TestThread(threading.Thread):
-    def __init__(self, command_path, target_file, command, callback):
+    def __init__(self, command_path, target_file, test_name, command, callback):
         threading.Thread.__init__(self)
         self.command_path = command_path
         self.target_file = target_file
+        self.test_name = test_name
         self.command = command
         self.callback = callback
 
@@ -154,11 +147,7 @@ class TestThread(threading.Thread):
             shell=True)
 
         output, errors = self.p.communicate()
-        # if errors:
-        #     print 'errors'
-        #     print errors
-
-        self.callback(self, self.target_file, output, errors)
+        self.callback(self, self.target_file, self.test_name, output, errors)
 
     def stop(self):
         self.p.terminate()
@@ -174,12 +163,17 @@ class EasyRunnerTestLog(object):
         self.reset()
 
     def reset(self):
-        self.log = {}
+        self.log = {
+            'loops': {},
+            'cumulative': {
+                'files': {},
+            }
+        }
         self.loop = 0
 
     def new_loop(self):
         self.loop += 1
-        self.log[self.loop] = {
+        self.log['loops'][self.loop] = {
             'files': {},
             'pass_count': 0,
             'fail_count': 0
@@ -189,62 +183,133 @@ class EasyRunnerTestLog(object):
         return self.loop
 
     def get_loop_log(self, loop):
-        return self.log[loop]
+        return self.log['loops'][loop]
 
     def get_current_loop_log(self):
-        return self.log[self.get_loop()]
+        return self.log['loops'][self.get_loop()]
 
-    def init_file_log(self, filename):
-        if not filename in self.log[self.get_loop()]['files']:
-            self.log[self.get_loop()]['files'][filename] = {
+    def init_log(self, filename, test_name=None):
+        loop_log = self.get_current_loop_log()
+        if not filename in loop_log['files']:
+            loop_log['files'][filename] = {
+                'pass_count': 0,
+                'fail_count': 0,
+                'tests': {}
+            }
+        if test_name is not None:
+            if not test_name in loop_log['files'][filename]['tests']:
+                loop_log['files'][filename]['tests'][test_name] = {
                 'pass_count': 0,
                 'fail_count': 0
             }
 
-    def get_file_log(self, filename):
-        self.init_file_log(filename)
-        return self.get_current_loop_log()['files'][filename]
+        if not filename in self.log['cumulative']['files']:
+            self.log['cumulative']['files'][filename] = {
+                'pass_count': 0,
+                'fail_count': 0,
+                'tests': {}
+            }
+        f_cuml_log = self.log['cumulative']['files'][filename]
+        if not test_name in f_cuml_log['tests']:
+            f_cuml_log['tests'][test_name] = {
+                'pass_count': 0,
+                'fail_count': 0
+            }
 
-    def get_file_pass_count(self, filename):
-        return self.get_file_log(filename)['pass_count']
+    def get_cumulative_log(self, filename, test_name=None):
+        self.init_log(filename, test_name)
+        if test_name is None:
+            return self.log['cumulative']['files'][filename]
+        else:
+            return self.log['cumulative']['files'][filename]['tests'][test_name]
 
-    def get_file_fail_count(self, filename):
-        return self.get_file_log(filename)['fail_count']
+    def get_loop_log_for_test(self, filename, test_name=None):
+        self.init_log(filename, test_name)
+        file_log = self.get_current_loop_log()['files'][filename]
+        if test_name is None:
+            return file_log
+        else:
+            return file_log['tests'][test_name]
 
-    def log_pass(self, filename):
+    def get_loop_pass_count(self, filename, test_name=None):
+        return self.get_loop_log_for_test(
+            filename,
+            test_name)['pass_count']
+
+    def get_loop_fail_count(self, filename, test_name=None):
+        return self.get_loop_log_for_test(
+            filename,
+            test_name)['fail_count']
+
+    def get_cumulative_pass_count(self, filename, test_name=None):
+        return self.get_cumulative_log(filename, test_name)['pass_count']
+
+    def get_cumulative_fail_count(self, filename, test_name=None):
+        return self.get_cumulative_log(filename, test_name)['fail_count']
+
+    def log_pass(self, filename, test_name=None):
         self.get_current_loop_log()['pass_count'] += 1
-        self.get_file_log(filename)['pass_count'] += 1
+        self.get_loop_log_for_test(
+            filename,
+            test_name)['pass_count'] += 1
+        self.get_cumulative_log(filename, test_name)['pass_count'] += 1
 
     def log_failure(self, filename, test_name=None):
         self.get_current_loop_log()['fail_count'] += 1
-        self.get_file_log(filename)['fail_count'] += 1
+        self.get_loop_log_for_test(
+            filename,
+            test_name)['fail_count'] += 1
+        self.get_cumulative_log(filename, test_name)['fail_count'] += 1
 
-    def get_files_in_loop(self, loop=None):
+    def get_all_loop_tests(self, loop=None, test_names=False):
         if loop is None:
             loop = self.get_loop()
 
-        all_files = []
-        failed_files = []
-        passed_files = []
+        log = self.get_loop_log(loop=loop)
 
-        for f in self.log[loop]['files']:
-            all_files.append(f)
-            if self.get_file_pass_count(f) > 0:
-                passed_files.append(f)
-            if self.get_file_fail_count(f) > 0:
-                failed_files.append(f)
-        all_files.sort()
-        passed_files.sort()
-        failed_files.sort()
-        return (all_files, passed_files, failed_files)
+        all_ = []
+        failed = []
+        passed = []
+
+        for filename in log['files']:
+            if test_names is False:
+                all_.append(filename)
+                if self.get_loop_pass_count(filename) > 0:
+                    passed.append(filename)
+                if self.get_loop_fail_count(filename) > 0:
+                    failed.append(filename)
+            else:
+                tests_log = log['files'][filename]['tests']
+                for test_name in tests_log:
+                    all_.append(test_name)
+                    if self.get_loop_pass_count(filename, test_name) > 0:
+                        passed.append(test_name)
+                    if self.get_loop_fail_count(filename) > 0:
+                        passed.append(test_name)
+        all_.sort()
+        passed.sort()
+        failed.sort()
+        return (all_, passed, failed)
+
+    def get_all_failed_tests(self):
+        failed_tests = defaultdict()
+        cfl = self.log['cumulative']['files']
+        for filename in cfl:
+            failed_in_file = []
+            for test_name in cfl[filename]['tests']:
+                if cfl[filename]['tests'][test_name]['fail_count'] > 0:
+                    failed_in_file.append(test_name)
+            if len(failed_in_file) > 0:
+                failed_in_file.sort()
+                failed_tests[filename] = failed_in_file
+        return failed_tests
 
     def get_all_failed_files(self):
         """Get all failed files from all loops."""
         failed_files = set()
-        for loop in self.log:
-            for filename in self.log[loop]['files']:
-                if self.log[loop]['files'][filename]['fail_count'] > 0:
-                    failed_files.add(filename)
+        for filename in self.log['cumulative']['files']:
+            if self.log['cumulative']['files'][filename]['fail_count'] > 0:
+                failed_files.add(filename)
         l = list(failed_files)
         l.sort()
         return l
@@ -265,19 +330,24 @@ class EasyRunner(object):
     filtered_files = []
     selected_filtered_test_indices = []
     temp_selection_indices = []
-    pending_test_files = []
+    pending_test_indices = []
     search_file_page = 0
-    failure_file_page = 0
+    failure_list_page = 0
     total_test_count = None
     use_all_files = False
     start_time = None
     input_buffer = ''
 
     view_mode = TEST_SCOPE_VIEW_MODE
+    search_mode = FILENAME_SEARCH_MODE
 
     output_log_f = 'easyrunner.log'
 
     test_setup_funcs = []
+
+    test_poll_delay = 1
+
+    can_search_in_files = False
 
     can_parallel = False
     run_parallel = False
@@ -290,12 +360,9 @@ class EasyRunner(object):
 
     verbose = False
     loop_mode = False
-    loop_count = 0
-    loop_tests_complete = 0
 
     pass_count_re = None
     fail_count_re = None
-    test_log = None
 
     clr = {
         'HEADER': '\033[95m',
@@ -307,13 +374,14 @@ class EasyRunner(object):
     }
 
     def __init__(self):
-        # self.set_command_path(os.getcwd())
+        self.init_output_logs()
+
         self.init_curses()
         win_h, win_w = self.curses_helper.get_size()
-        self.PROMPT_Y = win_h - 2
-        self.CONFIG_Y = win_h - 1
+        self.PROMPT_Y = win_h - 3
+        self.CONFIG_Y = self.PROMPT_Y + 1
         self.CONTENT_Y = 4
-        self.CONTENT_MAX_Y = win_h - 5
+        self.CONTENT_MAX_Y = win_h - 6
 
         self.log = EasyRunnerTestLog()
 
@@ -349,28 +417,88 @@ class EasyRunner(object):
                 'func': self.view_raw_output
             },
             {
-                'command': ':p <#>',
+                'command': ':par <#>',
                 'description': 'Set parallel count (if available). For example: ":p 3".',
                 'func': self.set_parallel_count
+            },
+            {
+                'command': ':poll <#>',
+                'description': 'Set poll delay in seconds. This affects how often the display is updated and test threads are spawned. If your tests execute very quickly, set this number lower. (Usage) :poll 1.5',
+                'func': self.set_poll_delay
+            },
+            {
+                'command': ':tn',
+                'description': 'Test name mode. Search for test names, rather than just filenames. (If allowed.)',
+                'func': self.set_search_mode_test_names
+            },
+            {
+                'command': ':fn',
+                'description': 'Filename mode. Search only for filenames (not within files for test names).',
+                'func': self.set_search_mode_filename
             },
             {
                 'command': ':?',
                 'description': 'Get help.',
                 'func': self.print_help
             },
+            {
+                'command': ':q',
+                'description': 'Quit.',
+                'func': self.quit
+            },
         ]
+
+    def init_output_logs(self):
+        data_dir = os.path.expanduser('~/.easyrunner')
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+        self.debug_log_path = os.path.join(data_dir, 'debug.log')
+        with open(self.debug_log_path, 'w') as f:
+            pass
+
+        logger.setLevel(logging.DEBUG)
+        LOGFORMATTER = logging.Formatter('[%(name)s:%(lineno)d] - %(levelname)s - %(message)s')
+        FILEHANDLER = FileHandler(self.debug_log_path)
+        FILEHANDLER.setFormatter(LOGFORMATTER)
+        FILEHANDLER.setLevel(logging.DEBUG)
+        logger.addHandler(FILEHANDLER)
+
+        self.output_log_f = os.path.join(data_dir, 'tests.log')
+        with open(self.output_log_f, 'w') as f:
+            pass
+
+    def reset(self):
+        self.find_all_files()
+        self.find_all_tests()
+        self.filtered_files = list(self.all_files)
+        self.selected_filtered_test_indices = []
+        self.log = EasyRunnerTestLog()
+        self.pending_test_indices = []
+        self.total_test_count = None
+        self.start_time = None
+        self.set_default_feedback()
+        self.failure_list_page = 0
+        self.search_file_page = 0
+        self.view_mode = TEST_SCOPE_VIEW_MODE
+        self.draw()
+
+    def strip_ansi(self, text):
+        return re.sub(r'\033\[[0-9;]+m', '', text)
 
     def init_curses(self):
         self.curses_helper = CursesHelper()
 
     def is_running(self):
-        return len(self.test_threads) > 0
+        return len(self.test_threads) > 0 or len(self.pending_test_indices) > 0
+
+    def in_filename_search_mode(self):
+        return self.search_mode == FILENAME_SEARCH_MODE
+
+    def in_testname_search_mode(self):
+        return self.search_mode == TESTNAME_SEARCH_MODE
 
     def should_print_test_status(self):
         return self.is_running() or self.view_mode == TEST_STATUS_VIEW_MODE
-
-    def has_run(self):
-        return self.loop_count > 0
 
     def draw(self, clear=False):
         if not self.curses_helper:
@@ -379,9 +507,6 @@ class EasyRunner(object):
         ch = self.curses_helper
         win_h, win_w = ch.get_size()
 
-        # if clear is True:
-        #     ch.window.clear()
-        # else:
         ch.window.erase()
 
         self.draw_window()
@@ -389,7 +514,7 @@ class EasyRunner(object):
             self.print_test_run_status()
         else:
             self.print_test_scope()
-        self.draw_config()
+        self.print_config()
         self.print_padding()
         self.print_feedback()
         self.print_prompt()
@@ -402,32 +527,6 @@ class EasyRunner(object):
             for x in range(0, ch.padcols):
                 ch.addstr(y, x, ' ')
 
-    def reset(self):
-        self.find_all_files()
-        self.filtered_files = list(self.all_files)
-        self.selected_filtered_test_indices = []
-        self.test_log = {
-            'files': {},
-            'passes': 0,
-            'failures': 0,
-            'failed_tests': [],
-            'failed_files': {}
-        }
-        self.pending_test_files = []
-        self.total_test_count = None
-        self.start_time = None
-        self.loop_count = 0
-        self.loop_tests_complete = 0
-        self.set_default_feedback()
-        self.failure_file_page = 0
-        self.search_file_page = 0
-        self.view_mode = TEST_SCOPE_VIEW_MODE
-        self.draw()
-
-    def set_cli_args(self, args):
-        self.cli_args = args
-        self.process_cli_args()
-
     def set_base_path(self, path):
         self.base_path = path
 
@@ -437,15 +536,9 @@ class EasyRunner(object):
     def set_command(self, command):
         self.command = command
 
-    def init_output_log(self):
-        self.output_log_f = os.path.join(self.command_path, self.output_log_f)
-        with open(self.output_log_f, 'w') as f:
-            pass
-
     def set_command_path(self, path):
         if os.path.isdir(path):
             self.command_path = path
-            self.init_output_log()
         else:
             raise("Bad command path provided: " + str(path))
 
@@ -476,17 +569,34 @@ class EasyRunner(object):
     def add_suffix(self, suffix):
         self.command_suffixes.add(suffix)
 
-    def add_cli_handler(self, func):
-        self.cli_handlers.append(func)
+    def set_search_mode_filename(self):
+        self.search_mode = FILENAME_SEARCH_MODE
+        self.search_file_page = 0
 
-    def set_verbose(self, verbose):
-        self.verbose = bool(verbose)
-
-    def toggle_verbosity(self):
-        self.verbose = not self.verbose
+    def set_search_mode_test_names(self):
+        if self.can_search_in_files:
+            self.search_mode = TESTNAME_SEARCH_MODE
+            self.search_file_page = 0
+        else:
+            self.feedback_str = '[Test name searching not enabled for this test suite]'
 
     def toggle_parallel_mode(self):
         self.run_parallel = not self.run_parallel
+
+    def set_poll_delay(self):
+        failed = False
+        try:
+            delay = float(self.input_buffer.split(' ')[1])
+            self.test_poll_delay = round(delay, 2)
+        except ValueError, e:
+            failed = True
+        except IndexError, e:
+            failed = True
+
+        if failed is True:
+            self.feedback_str = "{0} {1}".format(
+                "That didn't work.",
+                "This command should look like :poll 1.5")
 
     def set_parallel_count(self):
         try:
@@ -508,18 +618,29 @@ class EasyRunner(object):
         diff = datetime.datetime.now() - self.start_time
         return str(diff).split('.')[0]
 
+    def check_window_size(self):
+        min_w = 112
+        min_h = 20
+        win_h, win_w = self.curses_helper.window.getmaxyx()
+        if win_h < min_h or win_w < min_w:
+            msg = ('This script needs some breathing room. ' +
+                'Please resize your terminal to at least 112 x 20.\n' +
+                '(You are currently at {0} x {1}.)'.format(win_w, win_h))
+            self.quit(error_msg=msg)
+
     def run(self):
+        self.check_window_size()
         signal.signal(signal.SIGINT, self.sigint_handler)
         signal.signal(signal.SIGWINCH, self.resize_handler)
-
         self.reset()
         self.queue_all()
-
         self.draw()
-        # t = threading.Thread(target=self.get_user_input)
-        # t.daemon = True
-        # t.start()
-        self.get_user_input()
+        while True:
+            try:
+                self.get_user_input()
+            except Exception, e:
+                logger.error('Exception: ' + str(e))
+                self.quit()
 
     def in_command_mode(self):
         return len(self.input_buffer) > 0 and self.input_buffer[0] == ':'
@@ -527,7 +648,7 @@ class EasyRunner(object):
     def print_prompt(self):
         ch = self.curses_helper
         win_h, win_w = ch.get_size()
-        y = win_h - 2
+        y = self.PROMPT_Y
         x = ch.padcols
         s = '> ' + self.input_buffer
         ch.window.addstr(y, x, s)
@@ -535,8 +656,9 @@ class EasyRunner(object):
         ch.window.clrtoeol()
 
     def get_user_input(self):
-        logger.debug('get_user_input ')
+        logger.debug('get_user_input')
         if not self.curses_helper:
+            logger.debug('no curses helper; returning')
             return
 
         win = self.curses_helper.window
@@ -545,11 +667,18 @@ class EasyRunner(object):
         self.print_prompt()
         curses.cbreak()
         try:
-            inp = self.curses_helper.window.getkey()
-            logger.debug('inp: ' + str(inp))
+            # if self.is_running():
+            #     logger.debug('trying getch...')
+            #     inp = win.getch()
+            #     logger.debug('inp: ' + str(inp))
+            #     return
+
+            logger.debug('threading.current_thread(): ' + str(threading.current_thread()))
+            logger.debug('waiting for input...')
+            inp = win.getkey()
+            logger.debug('input: ' + str(inp))
         except curses.error, e:
-            logger.debug('curses input error: ' + str(e))
-            self.get_user_input()
+            logger.debug('curses input error')
             return
 
         if inp == 'KEY_BACKSPACE':
@@ -558,18 +687,16 @@ class EasyRunner(object):
             inp = ''
             self.draw()
 
-        if inp == ' ':
+        if inp == ' ' and not self.in_command_mode():
             pass
         elif inp == 'KEY_RESIZE':
+            self.check_window_size()
             h, w = win.getmaxyx()
-            logger.debug('KEY_RESIZE: {0}, {1}'.format(h, w))
             curses.resize_term(h, w)
             self.draw()
         elif inp == 'KEY_UP':
-            logger.debug('KEYUP')
             self.key_up()
         elif inp == 'KEY_DOWN':
-            logger.debug('KEYDOWN')
             self.key_down()
         elif inp in ['KEY_LEFT', 'KEY_RIGHT', 'KEY_SF']:
             pass
@@ -579,53 +706,47 @@ class EasyRunner(object):
             self.draw()
         elif len(self.input_buffer) > 0 and self.input_buffer[0] == ':':
             if inp == '\n':
-                self.command_feedback(execute=True)
+                self.eval_command(execute=True)
             else:
                 self.input_buffer += inp
-                self.command_feedback(execute=False)
+                self.eval_command(execute=False)
         elif inp == '\n':
             if not self.is_running():
                 if self.input_buffer == '':
+                    logger.debug('calling run_tests()')
                     self.run_tests()
+                    logger.debug('returned from run_tests()')
                 else:
                     self.input_buffer = ''
             self.draw()
         else:
             self.input_buffer += inp
 
-            if self.is_running():
-                return
-            else:
+            if not self.is_running():
                 self.view_mode = TEST_SCOPE_VIEW_MODE
+                if len(self.input_buffer) > 0:
+                    self.feedback_str = 'Filter string: ' + self.input_buffer
+                else:
+                    self.set_default_feedback()
+                self.filter_files(self.input_buffer)
+                self.draw()
 
-            if len(self.input_buffer) > 0:
-                self.feedback_str = 'Filter string: ' + self.input_buffer
-            else:
-                self.set_default_feedback()
-            self.filter_files(self.input_buffer)
-
-            self.draw()
-
-        logger.debug('end of get_user_input')
         self.last_input = inp
-        self.get_user_input()
 
     def key_up(self):
-        logger.debug('key_up')
         if self.view_mode == TEST_SCOPE_VIEW_MODE:
             if self.search_file_page > 0:
                 self.search_file_page -= 1
         elif self.view_mode == TEST_STATUS_VIEW_MODE:
-            if self.failure_file_page > 0:
-                self.failure_file_page -= 1
+            if self.failure_list_page > 0:
+                self.failure_list_page -= 1
         self.draw()
 
     def key_down(self):
-        logger.debug('key_down')
         if self.view_mode == TEST_SCOPE_VIEW_MODE:
             self.search_file_page += 1
         elif self.view_mode == TEST_STATUS_VIEW_MODE:
-            self.failure_file_page += 1
+            self.failure_list_page += 1
         self.draw()
 
     def draw_window(self):
@@ -651,23 +772,127 @@ class EasyRunner(object):
         ch = self.curses_helper
         win = ch.window
         win_h, win_w = ch.get_size()
-        y = win_h - 3
+
+        lines = textwrap.wrap(self.feedback_str, win_w - ch.padcols * 3)
+
+        y = self.PROMPT_Y - len(lines)
         x = ch.padcols
-        win.addnstr(y, x, self.feedback_str, win_w - x - 5, ch.green_cpair)
-        ch.window.clrtoeol()
+
+        for line in lines:
+            win.addstr(y, x, line, ch.green_cpair)
+            ch.window.clrtoeol()
+            y += 1
 
     def print_title(self):
         print self._header('\n----- ' + self.title + ' -----\n')
 
     def print_test_scope(self):
-        """Print the target files and related parameters (verbosity, etc.)"""
+        win = self.curses_helper.window
+        win_h, win_w = win.getmaxyx()
+        y = self.CONTENT_Y
+        x = self.curses_helper.padcols
+        col1_w = col2_w = int(win_w / 2) - 10
+        col2_start = win_w - col2_w - 4
+
+        if self.search_mode == FILENAME_SEARCH_MODE:
+            self.print_filename_search_mode_test_scope(col1_w, col2_start,
+                col2_w)
+        elif self.search_mode == TESTNAME_SEARCH_MODE:
+            self.print_testname_search_mode_test_scope(col1_w, col2_start,
+                col2_w)
+
+    def print_testname_search_mode_test_scope(self, col1_w, col2_start, col2_w):
+        ch = self.curses_helper
+        win = self.curses_helper.window
+        y = self.CONTENT_Y
+        x = ch.padcols
+
+        available_lines = self.CONTENT_MAX_Y - y - 2
+        total_lines = 0
+        test_indices_by_name = {}
+        tests_by_index = {}
+        test_count = 0
+        for filename in self.filtered_tests:
+            total_lines += 1
+            test_indices_by_name[filename] = {}
+            for test_name in self.filtered_tests[filename]:
+                test_indices_by_name[filename][test_name] = test_count
+                tests_by_index[test_count] = {
+                    'filename': filename,
+                    'test_name': test_name
+                }
+                test_count += 1
+        self.tests_by_index = tests_by_index
+
+        if total_lines < available_lines:
+            start_idx = 0
+            self.search_file_page = 0
+        else:
+            lines_per_page = int(available_lines * .8)
+            page_count = int(total_lines / lines_per_page) + 1
+            if self.search_file_page > page_count:
+                self.search_file_page = page_count
+            start_idx = self.search_file_page * lines_per_page
+
+        y += 1
+        line_count = 0
+        break_ = False
+        for filename in self.filtered_tests:
+            line_count += 1
+            if line_count + len(self.filtered_tests[filename]) < start_idx:
+                continue
+            head, tail = os.path.split(filename)
+            head_s = ellipsify(head, col1_w - len(tail) - 3) + '/'
+            ch.addstr(y, x, head_s, ch.highlight_cpair)
+            ch.addstr(y, x + len(head_s), tail, curses.A_BOLD)
+            y += 1
+            for test_name in self.filtered_tests[filename]:
+                line_count += 1
+                idx = test_indices_by_name[filename][test_name]
+                if idx in self.temp_selection_indices:
+                    cpair = ch.bg_highlight_cpair
+                else:
+                    cpair = None
+                s = ('  - [{0}] {1}'.format(
+                        test_indices_by_name[filename][test_name] + 1,
+                        ellipsify(test_name, col1_w - 10)))
+                ch.addstr(y, x, s, cpair)
+                y += 1
+                if y == self.CONTENT_MAX_Y - 1:
+                    break_ = True
+                    break
+            if break_ is True:
+                break
+
+        s = 'Search Results: {0} tests in {1} files'.format(test_count,
+            len(self.filtered_tests))
+        ch.addstr(self.CONTENT_Y, ch.padcols, s, ch.highlight_cpair)
+
+        y = self.CONTENT_Y
+        x = col2_start
+        win.addstr(y, x, 'Targeted Files', ch.heading_cpair)
+        win.addstr(' (these will be run)')
+        y += 1
+        selected_count = len(self.selected_filtered_test_indices)
+        if selected_count > 0:
+            target_count = selected_count
+            for i in self.selected_filtered_test_indices:
+                test_name = tests_by_index[i]['test_name']
+                s = '[{0}] {1}'.format(i + 1,
+                    ellipsify(test_name, col2_w - 2))
+                ch.addstr(y, x, s, ch.highlight_cpair)
+                y += 1
+        else:
+            target_count = len(self.filtered_files)
+            ch.addstr(y, x, '<-- All search results will be run',
+                ch.highlight_cpair)
+
+    def print_filename_search_mode_test_scope(self, col1_w, col2_start, col2_w):
         ch = self.curses_helper
         win = ch.window
         win_h, win_w = ch.get_size()
         y = self.CONTENT_Y
         x = ch.padcols
-        col1_w = col2_w = int(win_w / 2) - 10
-        col2_start = win_w - col2_w - 4
 
         max_lines = self.CONTENT_MAX_Y - self.CONTENT_Y
         max_y = y + max_lines
@@ -689,7 +914,6 @@ class EasyRunner(object):
         if len(display_files) == 0:
             win.addstr(y, x, 'No files matching search')
             return
-
 
         lines_per_page = int(max_lines * .8)
         page_count = int(math.ceil(len(display_files) / lines_per_page)) + 1
@@ -749,14 +973,26 @@ class EasyRunner(object):
             ch.addstr(y, x, '<-- All search results will be run',
                 ch.highlight_cpair)
 
-    def draw_config(self):
+    def print_config(self):
         ch = self.curses_helper
         win = ch.window
         win_h, win_w = ch.get_size()
         y = self.CONFIG_Y
 
         try:
-            win.addstr(y, ch.padcols, 'Config: ')
+            win.addstr(y, ch.padcols, 'Config: ', curses.A_BOLD)
+
+            win.addstr('[search ')
+            if self.search_mode == FILENAME_SEARCH_MODE:
+                win.addstr('filenames', ch.highlight_cpair)
+            elif self.search_mode == TESTNAME_SEARCH_MODE:
+                win.addstr('test names', ch.highlight_cpair)
+            win.addstr('] ')
+
+            win.addstr('[poll delay ')
+            win.addstr(str(self.test_poll_delay), ch.highlight_cpair)
+            win.addstr('] ')
+
             win.addstr('[parallel ')
             if self.run_parallel is True:
                 win.addstr(str(self.max_parallel_count), ch.highlight_cpair)
@@ -769,13 +1005,20 @@ class EasyRunner(object):
                 win.addstr('on', ch.highlight_cpair)
             else:
                 win.addstr('off')
-            win.addstr(']')
+            win.addstr('] ')
 
-            logs1 = '[Debug: {0}] '.format(ellipsify(str(log_f), 30))
-            logs2 = '[Output: {0}]'.format(ellipsify(self.output_log_f, 30))
-            # x = win_w - 4 - max(len(logs1), len(logs2))
-            x = win_w - len(logs1) - len(logs2) - 2
-            win.addstr(y, x, logs1)
+            y += 1
+            x = ch.padcols
+            s = 'Logs:   '
+            w = int(win_w / 2 - 6 - len(s) / 2)
+
+            win.addstr(y, x, s, curses.A_BOLD)
+            logs1 = '[Output: {0}]'.format(ellipsify(self.output_log_f, w))
+            logs2 = '[Debug: {0}] '.format(
+                ellipsify(str(self.debug_log_path), w))
+
+            win.addstr(logs1)
+            win.addstr(' ')
             win.addstr(logs2)
         except curses.error, e:
             pass
@@ -800,7 +1043,7 @@ class EasyRunner(object):
                 pass
         return numbers
 
-    def command_feedback(self, execute=False):
+    def eval_command(self, execute=False):
         if not self.in_command_mode():
             return
 
@@ -824,18 +1067,20 @@ class EasyRunner(object):
                 self.draw()
         else:
             for cmd in self.commands:
-                if s[:2] == cmd['command'][:2]:
+                if s[:3] == cmd['command'][:3]:
                     self.feedback_str = '<Enter> ' + cmd['description']
                     self.draw()
                     if execute is True:
                         func = cmd['func']
+                        logger.debug('executing ' + cmd['description'])
                         func()
         if execute is True:
             self.input_buffer = ''
-            self.feedback_str = ''
             self.draw()
 
     def print_help(self):
+
+        logger.debug('print_help')
 
         def add_wrapped(y, x, text, width):
             for line in textwrap.wrap(text, width):
@@ -858,69 +1103,32 @@ class EasyRunner(object):
             },
         ]
 
-        ch = self.curses_helper
-        panel_key = 'help_panel'
-        help_panel = ch.get_panel(panel_key)
-        win = help_panel.window()
-        win_h, win_w = win.getmaxyx()
-        padcols = 2
+        self.end_curses()
 
-        win.clear()
-
-        s = 'Usage'
-        y = 1
-        x = int(win_w / 2 - len(s) / 2)
-        win.addstr(y, x, s, ch.heading_cpair)
-        y += 1
+        print 'USAGE\n'
 
         for part in intro:
-            win.addstr(y, padcols, part['heading'], ch.highlight_cpair)
-            y += 1
-            y = add_wrapped(y, padcols, part['body'], win_w - padcols * 2)
-            y += 1
+            print part['heading']
+            print part['body']
+            print
 
-        s = 'Commands'
-        x = int(win_w / 2 - len(s) / 2)
-        win.addstr(y, x, s, ch.heading_cpair)
-        y += 1
+        print ''
+
+        print('COMMANDS')
 
         for cmd in self.commands:
-            x = padcols
-            try:
-                win.addstr(y, x, cmd['command'], ch.highlight_cpair)
-            except curses.error, e:
-                pass
-            x = 12
-            for line in textwrap.wrap(cmd['description'], win_w - 10):
-                try:
-                    win.addstr(y, x, line)
-                except curses.error, e:
-                    pass
-                y += 1
+            logger.debug('command: ' + str(cmd))
+            print(cmd['command'])
+            print(cmd['description'])
+            print
 
-        y += 1
-        win.addstr(y, padcols, 'NOTE!', ch.warn_cpair)
-        s = "If the script exist unexpectedly, your terminal may get messed up. Enter 'reset' to fix it. Trying to fix this."
-        add_wrapped(y, x, s, win_w - padcols * 3)
-        y += 2
-        win.addstr(y, padcols, 'ALSO!', ch.warn_cpair)
-        s = "If you resize your terminal, you will probably end up in the situation described above. Working on it."
-        add_wrapped(y, x, s, win_w - padcols * 3)
+        print("NOTE!")
+        print("If the script exist unexpectedly, your terminal may get messed up. Enter 'reset' to fix it. Trying to fix this.")
 
-        s = '<Hit any key to close>'
-        x = int(win_w / 2 - len(s) / 2)
-        win.addstr(win_h - 2, x, s, ch.highlight_cpair)
-
-        win.border()
-        win.refresh()
-        help_panel.top()
-        help_panel.show()
-
-        curses.curs_set(0)
-        inp = win.getkey()
-        help_panel.hide()
+        print
+        i = raw_input('<Hit enter to return>')
+        self.init_curses()
         self.draw()
-        curses.curs_set(2)
 
     def prompt_resume_state(self):
         try:
@@ -955,24 +1163,25 @@ class EasyRunner(object):
             return False
 
     def save_state(self, failure_state=False):
-        if failure_state is False:
-            save_path = self.get_state_save_path()
-            files = self.target_files
-        else:
-            save_path = self.get_failure_save_path()
-            files = self.test_log['failed_files']
+        # if failure_state is False:
+        #     save_path = self.get_state_save_path()
+        #     files = self.target_files
+        # else:
+        #     save_path = self.get_failure_save_path()
+        #     files = self.test_log['failed_files']
 
-        state = {
-            'files': files,
-            'verbose': self.verbose
-        }
+        # state = {
+        #     'files': files,
+        #     'verbose': self.verbose
+        # }
 
-        child_state = self.get_state()
-        for key in child_state:
-            state[key] = child_state[key]
+        # child_state = self.get_state()
+        # for key in child_state:
+        #     state[key] = child_state[key]
 
-        f = file(save_path, "w")
-        pickle.dump(state, f)
+        # f = file(save_path, "w")
+        # pickle.dump(state, f)
+        pass
 
     def get_state(self):
         """Override me"""
@@ -983,6 +1192,7 @@ class EasyRunner(object):
         pass
 
     def print_test_run_status(self):
+        # TODO: Break me up
         ch = self.curses_helper
         win = ch.window
         win_h, win_w = ch.get_size()
@@ -994,8 +1204,14 @@ class EasyRunner(object):
         y = start_y
         x = ch.padcols
 
-        s = 'Active Tests ({0})'.format(len(self.test_threads))
-        win.addstr(y, x, s, ch.highlight_cpair)
+        thread_count = len(self.test_threads)
+        s = 'Active Tests ({0})'.format(thread_count)
+        if thread_count > 0:
+            cpair = ch.yellow_cpair
+        else:
+            cpair = ch.highlight_cpair
+
+        win.addstr(y, x, s, cpair)
         y += 1
         if len(self.test_threads) > 0:
             for thread in self.test_threads:
@@ -1005,34 +1221,29 @@ class EasyRunner(object):
         else:
             win.addstr(y, x, 'None')
 
-        y = start_y
-        x = col2_start
-        s = '<-- {0} Queued Tests'.format(len(self.pending_test_files))
-        ch.addstr(y, x, s, ch.highlight_cpair)
-
-        y += 1
-        if len(self.pending_test_files) > 0:
-            for f in self.pending_test_files:
-                s = ellipsify(f, col2_w)
-                ch.addnstr(y, x, s, col2_w)
-                y += 1
-                if y == self.CONTENT_MAX_Y - 1:
-                    ch.addstr(y, x, '[...]')
-                    break
-        else:
-            ch.addstr(y, x, 'None')
+        self.print_queued_tests(
+            start_y=start_y,
+            max_y=self.CONTENT_MAX_Y - 1,
+            start_x=col2_start,
+            max_x=col2_start + col2_w)
 
         y = self.CONTENT_Y + self.max_parallel_count + 2
         x = ch.padcols
-        win.addstr(y, x, 'Test Results', ch.highlight_cpair)
+        s = 'Test Results '
+        if self.in_filename_search_mode():
+            s += '(Test Files)'
+        elif self.in_testname_search_mode():
+            s += '(Individual Tests)'
+        win.addstr(y, x, s, ch.highlight_cpair)
         y += 1
 
-        run, passed, failed = self.log.get_files_in_loop()
+        run, passed, failed = self.log.get_all_loop_tests(
+            test_names=self.in_testname_search_mode())
         fail_count = len(failed)
         pass_count = len(passed)
         run_count = len(run)
 
-        win.addstr(y, x, '[Loop: {0}] '.format(self.log.get_loop()))
+        win.addstr(y, x, '[Loop {0}] '.format(self.log.get_loop()))
         win.addstr('[')
         win.addstr('{0} passes'.format(pass_count), ch.green_cpair)
         win.addstr(' / ')
@@ -1066,76 +1277,174 @@ class EasyRunner(object):
         progress_str += '{0}%'.format((int(percent_complete * 100)))
         ch.addstr(y, x, progress_str)
 
-        all_failed = self.log.get_all_failed_files()
-        all_failed_count = len(all_failed)
+        # Failures
         y += 2
-        if all_failed_count > 0:
-            available_lines = self.CONTENT_MAX_Y - 1
-            start_idx = 0
-            if all_failed_count > available_lines:
-                fails_per_page = int(available_lines * .8)
-                page_count = int(all_failed_count / fails_per_page)
-                start_idx = self.failure_file_page * fails_per_page
+        self.print_failed_tests(
+            start_y=y,
+            start_x=ch.padcols,
+            max_x=ch.padcols + col1_w)
 
-            ch.addstr(y, ch.padcols, 'Failures', ch.red_cpair)
+    def print_queued_tests(self, start_y, max_y, start_x, max_x):
+        ch = self.curses_helper
+        win = ch.window
+        y = start_y
+        x = start_x
+        col_w = max_x - start_x
+
+        s = '<-- Queued Tests ({0})'.format(len(self.pending_test_indices))
+        ch.addstr(y, x, s, ch.highlight_cpair)
+        y += 1
+
+        if len(self.pending_test_indices) > 0:
+            for idx in self.pending_test_indices:
+                if self.in_filename_search_mode():
+                    name = self.filtered_files[idx]
+                elif self.in_testname_search_mode():
+                    test_data = self.tests_by_index[idx]
+                    name = test_data['test_name']
+                s = ellipsify('- ' + name, col_w - 1)
+                ch.addstr(y, x, s)
+                y += 1
+                if y == max_y:
+                    ch.addstr(y, x, '[...]')
+                    break
+        else:
+            ch.addstr(y, x, 'None')
+
+    def print_failed_tests(self, start_y, start_x, max_x):
+        ch = self.curses_helper
+        win = ch.window
+        y = start_y
+        x = start_x
+        col_w = max_x - start_x
+
+        if self.in_filename_search_mode():
+            all_failed = self.log.get_all_failed_files()
+            all_failed_count = len(all_failed)
+            heading = 'Failed Files'
+        elif self.in_testname_search_mode():
+            all_failed = self.log.get_all_failed_tests()
+            all_failed_count = 0
+            for filename in all_failed:
+                all_failed_count += len(all_failed[filename])
+            heading = 'Failed Tests'
+
+        if all_failed_count > 0:
+            ch.addstr(y, x, heading, ch.red_cpair)
             win.addstr(' (cumulative)')
             s = '[Passes/Fails]'
-            ch.addstr(y, col1_w - len(s), s, ch.highlight_cpair)
+            ch.addstr(y, col_w - len(s), s, ch.highlight_cpair)
+
+            start_idx, page_count = self.determine_pages(
+                total_line_count=all_failed_count,
+                available_lines=self.CONTENT_MAX_Y - 1 - start_y,
+                current_page=self.failure_list_page)
+
             y += 1
             i = 0
-            for f in failed:
+            for failure in all_failed:
                 i += 1
-                if i < start_idx:
-                    continue
-
-                head, tail = os.path.split(f)
-                head_s = '{0}/'.format(
-                    ellipsify(head, col1_w - len(tail) - 10))
-
-                pass_count = str(self.log.get_file_pass_count(f))
-                all_failed_count = str(self.log.get_file_fail_count(f))
-
                 x = ch.padcols
-                ch.addstr(y, x, head_s)
-                win.addstr(tail, ch.red_cpair)
-                x = col1_w - len(pass_count) - len(all_failed_count) - 3
+
+                if self.in_filename_search_mode():
+                    if i < start_idx:
+                        continue
+
+                    head, tail = os.path.split(failure)
+                    head_s = '{0}/'.format(ellipsify(
+                        head,
+                        col_w - len(tail) - 8))
+
+                    ch.addstr(y, x, head_s)
+                    win.addstr(tail, ch.red_cpair)
+
+                    filename = failure
+                    test_name = None
+
+                elif self.in_testname_search_mode():
+                    failed_test_names = all_failed[failure]
+                    if i + len(failed_test_names) < start_idx:
+                        continue
+
+                    filename = failure['filename']
+                    test_name = failure['test_name']
+
+                    file_s = ellipsify(filename, col2_w - 7)
+                    test_name_s = '- ' + ellipsify(test_name, col2_w - 10)
+
+                    ch.addstr(y, x, file_s)
+                    y += 1
+                    ch.addstr(y, x, test_name_s, ch.red_cpair)
+
+                pass_count = str(self.log.get_cumulative_pass_count(
+                    filename=filename,
+                    test_name=test_name))
+
+                fail_count = str(self.log.get_cumulative_fail_count(
+                    filename=filename,
+                    test_name=test_name))
+
+                x = col_w - len(pass_count) - len(fail_count) - 3
                 win.addstr(y, x, '[')
                 win.addstr(pass_count, ch.green_cpair)
                 win.addstr('/')
-                win.addstr(all_failed_count, ch.red_cpair)
+                win.addstr(fail_count, ch.red_cpair)
                 win.addstr(']')
 
                 y += 1
                 if y == self.CONTENT_MAX_Y - 1:
-                    x = ch.padcols
-                    ch.addstr(y, x, '[...]')
                     break
+            s = '<Page {0}/{1}>'.format(
+                self.failure_list_page + 1,
+                page_count)
+            x = int(ch.padcols + col_w / 2 - len(s) / 2)
+            win.addstr(y, x, s, ch.highlight_cpair)
+
+    def determine_pages(self, total_line_count, available_lines, current_page):
+        fails_per_page = int(available_lines * .8)
+        page_count = int(total_line_count / fails_per_page) + 1
+        start_idx = int(current_page * fails_per_page)
+        return (start_idx, page_count)
 
     def poll_running_tests(self):
-        logger.debug('polling ...')
         if self.can_parallel is True and self.run_parallel is True:
             max_threads = self.max_parallel_count
         else:
             max_threads = 1
 
         while (len(self.test_threads) < max_threads and
-            len(self.pending_test_files) > 0):
+            len(self.pending_test_indices) > 0):
                 for func in self.test_setup_funcs:
                     func()
-                target_file = self.pending_test_files.pop(0)
+
+                idx = self.pending_test_indices.pop(0)
+                if self.in_filename_search_mode():
+                    target_file = self.filtered_files[idx]
+                    test_name = None
+
+                elif self.in_testname_search_mode():
+                    test_data = self.tests_by_index[idx]
+                    target_file = test_data['filename']
+                    test_name = test_data['test_name']
+
+                cmd = self.build_command(
+                    target_file=target_file,
+                    test_name=test_name)
+
                 thread = TestThread(
                     self.command_path,
                     target_file,
-                    self.build_command(target_file),
+                    test_name,
+                    cmd,
                     self.test_callback)
                 self.test_threads.append(thread)
                 thread.start()
 
         if len(self.test_threads) > 0:
-            self.test_poller = Timer(3, self.poll_running_tests)
+            self.test_poller = Timer(self.test_poll_delay,
+                self.poll_running_tests)
             self.test_poller.start()
-        else:
-            if self.loop_mode is True:
+        elif self.loop_mode is True:
                 all_failed = self.log.get_all_failed_files()
                 if len(all_failed) > 0:
                     failed_indices = []
@@ -1146,50 +1455,65 @@ class EasyRunner(object):
         self.draw(clear=True)
 
     def run_tests(self):
-        if not self.command:
-            raise('Missing command!')
-        if not self.command_path:
-            raise('Missing command path!')
-
-        logger.debug('run_tests')
         self.view_mode = TEST_STATUS_VIEW_MODE
         self.log.new_loop()
-        self.loop_tests_complete = 0
         if not self.start_time:
             self.start_time = datetime.datetime.now()
 
         sfti = self.selected_filtered_test_indices
         if len(sfti) > 0:
-            self.pending_test_files = [self.filtered_files[i] for i in sfti]
+            self.pending_test_indices = list(sfti)
         else:
-            self.pending_test_files = list(self.filtered_files)
-        self.total_test_count = len(self.pending_test_files)
+            if self.in_filename_search_mode():
+                self.pending_test_indices = range(len(self.filtered_files))
+            elif self.in_testname_search_mode():
+                self.pending_test_indices = range(len(self.tests_by_index))
+        self.total_test_count = len(self.pending_test_indices)
         self.poll_running_tests()
         self.draw()
 
-    def test_callback(self, test_thread, target_file, output, errors):
-        self.test_threads.remove(test_thread)
-        self.loop_tests_complete += 1
+    def test_callback(
+        self,
+        test_thread,
+        target_file,
+        test_name,
+        output,
+        errors):
+            self.test_threads.remove(test_thread)
 
-        combined = output + errors
-        with open(self.output_log_f, 'a+') as f:
-            f.write(combined)
-        self.handle_output(target_file, combined)
-        self.draw(clear=True)
+            combined = output + errors
+            with open(self.output_log_f, 'a+') as f:
+                f.write(combined)
+            self.handle_output(target_file, test_name, combined)
+            self.draw(clear=True)
 
-    def build_command(self, target_file):
+    def build_command(self, target_file, test_name=None):
         prefixes = ' '.join(self.command_prefixes)
         suffixes = ' '.join(self.command_suffixes)
         return '{0} {1}'.format(
             self.command,
             ' '.join([prefixes, target_file, suffixes]))
 
-    def handle_output(self, target_file, output):
-        self.test_log['files'][target_file] = output
-        self.update_log(target_file, output)
+    def handle_output(self, target_file, test_name, output):
+        self.update_log(target_file, self.strip_ansi(output),
+            test_name=test_name)
 
     def update_log(self, target_file, output):
         # Override me
+        pass
+
+    def find_all_tests(self):
+        if not self.can_search_in_files:
+            return
+
+        self.all_tests = {}
+        for filepath in self.all_files:
+            with open(filepath, 'r') as open_f:
+                test_names = self.find_tests_in_file(open_f.read())
+                self.all_tests[filepath] = test_names
+        self.filtered_tests = self.all_tests
+
+    def find_tests_in_file(self, file_content):
         pass
 
     def find_all_files(self):
@@ -1221,11 +1545,23 @@ class EasyRunner(object):
         self.draw()
 
     def filter_files(self, filter_str):
-        self.filtered_files = []
         filter_str = filter_str.lower()
-        for f in self.all_files:
-            if filter_str in f.lower():
-                self.filtered_files.append(f)
+        self.temp_selection_indices = []
+
+        if self.search_mode == FILENAME_SEARCH_MODE:
+            self.filtered_files = []
+            for f in self.all_files:
+                if filter_str in f.lower():
+                    self.filtered_files.append(f)
+        elif self.search_mode == TESTNAME_SEARCH_MODE:
+            self.filtered_tests = {}
+            for filename in self.all_tests:
+                matches = []
+                for test_name in self.all_tests[filename]:
+                    if filter_str in test_name.lower():
+                        matches.append(test_name)
+                if len(matches) > 0:
+                    self.filtered_tests[filename] = matches
         self.draw()
 
     def view_raw_output(self):
@@ -1253,10 +1589,6 @@ class EasyRunner(object):
                 self._bad('Bad path: ' + p)
                 self.quit()
 
-    def process_cli_args(self):
-        for a in self.cli_args[1:]:
-            self._process_cli_arg(a)
-
     def resume_state(self, failure_state=False):
         state_obj = self.load_state(failure_state=failure_state)
         if not state_obj:
@@ -1274,20 +1606,24 @@ class EasyRunner(object):
         self.quit()
 
     def resize_handler(self, signal, frame):
-        logger.debug('resize: ' + str(self.curses_helper.window.getmaxyx()))
+        self.check_window_size()
         self.end_curses()
         self.init_curses()
         self.draw()
 
     def end_curses(self):
+        logger.debug('end_curses')
         curses.nocbreak()
-        self.curses_helper.window.keypad(0)
+        try:
+            self.curses_helper.window.keypad(0)
+        except AttributeError, e:
+            pass
+
         curses.echo()
         curses.endwin()
         self.curses_helper = None
 
-    def quit(self, exception=None):
-        self.end_curses()
+    def quit(self, exception=None, error_msg=None):
         try:
             self.test_poller.cancel()
         except AttributeError, e:
@@ -1300,20 +1636,29 @@ class EasyRunner(object):
         for thread in self.test_threads:
             thread.stop()
 
-        with open(log_f, 'r') as f:
+        with open(self.output_log_f, 'r') as f:
             print(f.read())
 
-        print('Debug log: ' + str(log_f))
-        print('Test output log: ' + str(self.output_log_f))
-        print('Adios.')
+        if error_msg is not None:
+            print
+            print(error_msg)
+        else:
+            print('Test output log: ' + str(self.output_log_f))
+            print('Adios.')
         sys.exit()
-
-
 
 class NoseRunner(EasyRunner):
     def __init__(self):
+        super(EasyRunner, self).__init__()
+        self.add_file_extension('.py')
+        self.can_search_in_files = True
+        self.test_name_re = re.compile(r'def ([Tt]est\w+)\(')
+        self.pass_re = re.compile(r'OK \(\d+ test(s?), \d+ assertion(s?)\)',
+            re.MULTILINE)
+
         self.set_title('Nose Runny')
         self.set_command('nosetests')
+
 
 
 class BehatRunner(EasyRunner):
@@ -1329,8 +1674,8 @@ class BehatRunner(EasyRunner):
         self.set_command('bin/behat')
         self.add_suffix('--ansi')
         self.outcome_re = re.compile(r'\d+\Wscenarios?\W\(.+\)')
-        # self.fail_re = re.compile(r'(execution failed)|(Exception has been thrown)|((\d+) (failed|undefined))', re.I)
         self.pass_re = re.compile(r'[1-9]+ passed\)')
+        self.can_search_in_files = False
 
         self.add_file_extension('.feature')
         self.can_parallel = True
@@ -1346,25 +1691,15 @@ class BehatRunner(EasyRunner):
         self.tags = state_obj.get('tags')
         self.add_tag_suffix()
 
-    def update_log(self, feature_file, output):
+    def update_log(self, feature_file, output, test_name=None):
         if len(output) == 0:
             logger.debug('update_log: no output!')
             return
-
-        stripped_output = re.sub(r'\033\[[0-9;]+m', '', output)
-        logger.debug('stripped_output: ' + str(stripped_output))
-        passed = self.pass_re.search(str(stripped_output))
-        logger.debug('passed: ' + str(passed))
+        passed = self.pass_re.search(output)
         if passed is not None:
             self.log.log_pass(feature_file)
         else:
             self.log.log_failure(feature_file)
-
-    def process_cli_args(self):
-        super(BehatRunner, self).process_cli_args()
-        self._extract_tags()
-        self._extract_config_file()
-
 
     def _extract_tags(self):
         args = self.cli_args
@@ -1405,12 +1740,6 @@ class BehatRunner(EasyRunner):
        pass
 
 if __name__ == '__main__':
-    if '--behat' in sys.argv:
-        runner = BehatRunner()
-        runner.set_cli_args(sys.argv)
-        runner.run()
-
     if '--nose' in sys.argv:
         runner = NoseRunner()
-        runner.set_cli_args(sys.argv)
         runner.run()
