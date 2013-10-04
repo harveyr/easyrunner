@@ -153,8 +153,8 @@ class EasyRunner(object):
 
     def log_pass(self):
         """
-        Log that a test has passed. This is all we save for now, since we only
-        want additional details for tests that failed.
+        Log that a test has passed. This is all we save for now, since we
+        want additional details only for tests that failed.
         """
         self.test_log['passes'] += 1
 
@@ -206,14 +206,14 @@ class EasyRunner(object):
                 self.config_parts.append('silent')
             try:
                 self.config_parts.remove('verbose')
-            except:
+            except ValueError:
                 pass
         else:
             if 'verbose' not in self.config_parts:
                 self.config_parts.append('verbose')
             try:
                 self.config_parts.remove('silent')
-            except:
+            except ValueError:
                 pass
 
         colored_config_parts = [self._good(cp) for cp in self.config_parts]
