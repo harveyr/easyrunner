@@ -37,6 +37,8 @@ If you kick off the suite with this script, it will let you know on a glance wha
 
 Or, if you're running a subset of tests, you can quickly target them with a search string.
 
+It's a great help for this particular test suite. Not sure how necessary it is for other types of tests.
+
 ---
 
 ### Do You Want It?
