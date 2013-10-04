@@ -160,7 +160,14 @@ class EasyRunner(object):
         self.test_log['passes'] += 1
 
     def strip_ansi(self, text):
-        """Remove ansi codes from text (such as text from the console)."""
+        """
+        Remove ansi codes from text (such as text from the console).
+        """
+
+        # Some test runners don't let you disable colored output.
+        # <cough>PHPUnit</cough>
+        # https://github.com/sebastianbergmann/phpunit/issues/516
+
         return re.sub(r'\033\[[0-9;]+m|\[2K', '', text)
 
     def run(self):
