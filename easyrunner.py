@@ -263,9 +263,10 @@ class EasyRunner(object):
             self.print_test_scope()
             self.prompt_user()
             return
-        elif c == 'n' or c == 'q':
+        elif c in ['n', 'q']:
             self._quit()
 
+        # Handle number input, including spans
         numbers = set()
         parts = [part.strip() for part in c.split(',')]
 
@@ -278,7 +279,6 @@ class EasyRunner(object):
                     numbers.add(i)
                 continue
             try:
-                # Handle number input
                 num = int(part)
                 if num < 1 or num > len(self.target_files):
                     print(self._bad((
@@ -307,15 +307,16 @@ class EasyRunner(object):
         except:
             self._quit()
         c = c.lower()
-        if c == 'q' or c == 'n':
+        if c in ['q', 'n']:
             self._quit()
         self.run_tests()
 
     def get_state_save_path(self):
         """Gets the path at which to save the pickled state."""
         filename = '.{0}_state'.format(
-            ('_'.join(self.title.split(' '))).lower())
-        script_path = '/'.join(os.path.realpath(__file__).split('/')[:-1])
+            ('_'.join(self.title.split())).lower()
+        )
+        script_path = os.path.split(os.path.realpath(__file__))[0]
         return os.path.join(script_path, filename)
 
     def load_state(self):
@@ -381,7 +382,7 @@ class EasyRunner(object):
 
         except KeyboardInterrupt:
             if p:
-                print(self._warn('\nABORTING...'))
+                print(self._warn('\nAborting...'))
                 print('Terminating current process...')
                 p.terminate()
                 print('... done.')
@@ -393,7 +394,8 @@ class EasyRunner(object):
         suffixes = ' '.join(self.command_suffixes)
         return '{0} {1}'.format(
             self.command,
-            ' '.join([prefixes, target_file, suffixes]))
+            ' '.join([prefixes, target_file, suffixes])
+        )
 
     def handle_output(self, target_file, output):
         """Handles test output."""
@@ -457,13 +459,15 @@ class EasyRunner(object):
         if len(self.file_required_res) > 0:
             pats = [self._warn(r.pattern) for r in self.file_required_res]
             s = '\tFile must match {0} of these patterns: '.format(
-                self._warn('all'))
+                self._warn('all')
+            )
             s += ' | '.join(pats)
             print(s)
         if len(self.file_optional_res) > 0:
             pats = [self._status(r.pattern) for r in self.file_optional_res]
             s = '\tFile must match {0} of these patterns: '.format(
-                self._status('any'))
+                self._status('any')
+            )
             s += ' | '.join(pats)
             print(s)
 
@@ -553,7 +557,7 @@ class EasyRunner(object):
         """Tries to resume state from last execution of the test runnner."""
         state_obj = self.load_state()
         if not state_obj:
-            print('No arguments. Need to add a usage statement!')
+            print('No arguments. (Need to add a usage statement!)')
             self._quit()
         self.target_files = state_obj.get('files')
         self.verbose = state_obj.get('verbose')
@@ -628,7 +632,6 @@ class BehatRunner(EasyRunner):
     features = []
     config_file = None
     outcome_re = None
-
     tags = set()
 
     def __init__(self):
