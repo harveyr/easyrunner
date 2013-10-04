@@ -1,3 +1,5 @@
+.easyrunner_state
+
 *.py[cod]
 
 # C extensions

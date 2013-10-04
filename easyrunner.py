@@ -169,11 +169,7 @@ class EasyRunner(object):
 
         colored_config_parts = [self._good(cp) for cp in self.config_parts]
         config_str = '[ ' + ' | '.join(colored_config_parts) + ' ]'
-        print('{0} {1} {2}'.format(
-            self._status('Targets:'),
-            self._warn(str(len(self.target_files))),
-            config_str)
-        )
+        print('{0}'.format(config_str))
 
     def print_commands(self):
         command_sets = [
@@ -284,7 +280,6 @@ class EasyRunner(object):
         child_state = self.get_state()
         for key in child_state:
             state[key] = child_state[key]
-
         pickle.dump(state, file(self.get_state_save_path(), "w"))
 
     def get_state(self):
@@ -307,8 +302,8 @@ class EasyRunner(object):
     def run_command(self, target_file):
         cmd = self.build_command(target_file)
 
-        print('\n' + self._warn(self.get_path_rel_to_command_path(target_file)))
-        print(cmd)
+        print('\n' + self._warn("[RUNNING]" +
+              self.get_path_rel_to_command_path(target_file)))
 
         try:
             p = sub.Popen(cmd, stdout=sub.PIPE, stderr=sub.PIPE, shell=True)
@@ -318,9 +313,8 @@ class EasyRunner(object):
                     output += line
                     print(line.rstrip())
             else:
-                output, errors = p.communicate()
-                if errors:
-                    print(errors)
+                out, err = p.communicate()
+                output = err + out
 
             self.handle_output(target_file, output)
 
@@ -373,7 +367,7 @@ class EasyRunner(object):
             total_count))
 
         print('\n{0}: {1} | {2}  [{3}] [{4}]'.format(
-            self._header('Test Suite Tally'),
+            self._header('Test File Tally'),
             pass_str,
             fail_str,
             self._status(self.time_passed()),
@@ -390,7 +384,7 @@ class EasyRunner(object):
 
     def print_search_parameters(self):
         if len(self.file_required_res) + len(self.file_optional_res) == 0:
-            self._bad('No search patterns provided.')
+            print(self._bad('No search patterns provided.'))
             self._quit()
 
         print(self._status('Search Parameters'))
@@ -411,6 +405,10 @@ class EasyRunner(object):
         self.print_search_parameters()
         print(self._status('Searching...'))
         total_file_count = 0
+
+        if len(self.search_paths) == 0:
+            self.search_paths.add(self.command_path)
+
         for path in self.search_paths:
             for root, subFolders, files in os.walk(path):
                 count = 0
@@ -426,8 +424,6 @@ class EasyRunner(object):
                     print(root_path_str)
                 else:
                     print(self._status(root_path_str + ' [{0}]'.format(count)))
-
-        print('... finished searching {0} files.\n'.format(total_file_count))
 
     def evaluate_candidate_file(self, file_path):
         """Returns True if test file matches filter params."""
@@ -459,7 +455,7 @@ class EasyRunner(object):
         paths.add(self.command_path)
         for p in paths:
             if not os.path.isdir(p):
-                self._bad('Bad path: ' + p)
+                print(self._bad('Bad path: ' + p))
                 self._quit()
 
     def process_cli_args(self):
@@ -467,6 +463,7 @@ class EasyRunner(object):
             self._process_cli_arg(a)
 
     def _process_cli_arg(self, arg):
+        # TODO: Do we need all this?
         idx = self.cli_args.index(arg)
         if arg == '-sp':
             self.add_search_path(self.cli_args[idx + 1])
@@ -474,13 +471,13 @@ class EasyRunner(object):
             self.set_command_path(self.cli_args[idx + 1])
         elif arg == '-op':
             self.add_optional_regex(self.cli_args[idx + 1])
-        elif arg == '-rp':
-            self.add_required_regex(self.cli_args[idx + 1])
         elif arg == '--all':
             self.use_all_files = True
             self.config_parts.append(arg)
         elif arg == '-v' or arg == '--verbose':
             self.set_verbose(True)
+        else:
+            self.add_required_regex(self.cli_args[idx])
 
     def resume_state(self):
         state_obj = self.load_state()
@@ -535,10 +532,18 @@ class EasyRunner(object):
         sys.exit()
 
 
-class NoseRunner(EasyRunner):
+class PythonUnittestRunner(EasyRunner):
     def __init__(self):
-        self.set_title('Nose Runny')
+        self.set_title('Unittest Runner')
+        self.set_command('python')
+        self.add_required_regex(r'.*py$')
+
+
+class PythonNoseRunner(EasyRunner):
+    def __init__(self):
+        self.set_title('Runny Nose')
         self.set_command('nosetests')
+        self.add_required_regex(r'.*py$')
 
 
 class BehatRunner(EasyRunner):
@@ -628,6 +633,6 @@ if __name__ == '__main__':
         runner.run()
 
     if '--nose' in sys.argv:
-        runner = NoseRunner()
+        runner = PythonNoseRunner()
         runner.set_cli_args(sys.argv)
         runner.run()
