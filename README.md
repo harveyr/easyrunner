@@ -8,7 +8,7 @@ Working, but work in progress.
 
 ### What It Does
 
-1. *Test Discovery.* It will search your test directory and find all test files matching the search string.
+1. *Test Discovery.* It will search your test directory recursively and find all test files matching the search string.
 2. *Test Tracking.* It will run the discovered tests and progressively report what has passed and what has failed. 
 
 ### Why
