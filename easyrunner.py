@@ -72,7 +72,7 @@ class EasyRunner(object):
     def set_title(self, title):
         """
         Sets the title. This has no impact on anything but the header that's
-        printed on execution. This is just so each subclass can distinguish
+        printed on execution. This allows each subclass to distinguish
         itself.
         """
         self.title = title
