@@ -266,7 +266,7 @@ class EasyRunner(object):
         elif c == 'n' or c == 'q':
             self._quit()
 
-        numbers = []
+        numbers = set()
         parts = [part.strip() for part in c.split(',')]
 
         for part in parts:
@@ -275,17 +275,17 @@ class EasyRunner(object):
                 start = int(span_parts[0])
                 end = int(span_parts[1])
                 for i in range(start, end + 1):
-                    numbers.append(i)
+                    numbers.add(i)
                 continue
             try:
+                # Handle number input
                 num = int(part)
                 if num < 1 or num > len(self.target_files):
                     print(self._bad((
                         'That number is not in the list! Try again.\n')))
                     return self.prompt_user()
-                if num not in numbers:
-                    numbers.append(num)
-            except Exception:
+                    numbers.add(num)
+            except ValueError:
                 pass
 
         if len(numbers) > 0:
