@@ -11,7 +11,7 @@ Working, but work in progress.
 1. *Test Discovery.* It will search your test directory structure and find all test files matching the search string.
 2. *Test Tracking.* It will run the discovered tests and progressively report what has passed and what has failed. 
 
-It also makes it easier to quickly run a targeted test. For example, it turns this:
+It also makes it easier to quickly run targeted test(s). For example, it turns this:
 
 `> bin/behat features/applicationLms/modules/performance/performanceTableDimensions.feature --tags test1`
 
