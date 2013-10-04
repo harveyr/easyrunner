@@ -11,6 +11,14 @@ Working, but work in progress.
 1. *Test Discovery.* It will search your test directory structure and find all test files matching the search string.
 2. *Test Tracking.* It will run the discovered tests and progressively report what has passed and what has failed. 
 
+It also makes it easier to quickly run a targeted test. For example, it turns this:
+
+`> bin/behat features/applicationLms/modules/performance/performanceTableDimensions.feature --tags test1`
+
+into this:
+
+`> ./runner.py dimens @test1`
+
 ### Why
 This was originally (and hurriedly) written for a girthy Selenium test suite that took forever to run. Since the test runner (Behat) spammed the console as the tests ran, it was tough to tell what had failed unless you watched the log closely.
 
