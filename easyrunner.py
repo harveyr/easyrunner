@@ -35,7 +35,6 @@ class EasyRunner(object):
     start_time = None
 
     cli_args = None
-    cli_handlers = []
     config_parts = []
 
     verbose = False
@@ -62,67 +61,112 @@ class EasyRunner(object):
         self.set_command_path(os.getcwd())
 
     def set_cli_args(self, args):
+        """Accepts the command line arguments for the current invocation."""
+        # Not sure why I don't just grab them in __init__(). Maybe I had a
+        # reason? Maybe they shouldn't be processed until whatever is
+        # instantiating the runner does some setup work.
+        # Revisit this.
         self.cli_args = args
         self.process_cli_args()
 
-    def set_base_path(self, path):
-        self.base_path = path
-
     def set_title(self, title):
+        """
+        Sets the title. This has no impact on anything but the header that's
+        printed on execution. This is just so each subclass can distinguish
+        itself.
+        """
         self.title = title
 
     def set_command(self, command):
+        """
+        Sets the command that runs the tests. python, nosetests, bin/behat,
+        whatever.
+        """
         self.command = command
 
     def set_command_path(self, path):
+        """
+        Sets the path from which the test-runner command should be executed.
+        """
         if os.path.isdir(path):
             self.command_path = path
         else:
             print(self._bad("Bad command path provided: {}".format(path)))
 
     def add_search_path(self, path):
+        """Adds a path where to go for a test searchin'."""
         if path[0] == '~':
             path = os.path.expanduser(path)
         if os.path.exists(path):
             self.search_paths.add(path)
 
     def add_optional_regex(self, regex):
+        """
+        Adds an *optional* regular expression. A test file must match at least
+        one of these to be included.
+        """
         self.file_optional_res.add(re.compile(regex, re.I))
 
     def add_required_regex(self, regex):
+        """
+        Adds a *required* regular expression. If a test file does not match this,
+        it is excluded.
+        """
         self.file_required_res.add(re.compile(regex, re.I))
 
     def add_prefix(self, prefix):
+        """
+        Adds a command option/prefix. This will be included in the shell command
+        string after the command itself, but before the test file path.
+        """
         self.command_prefixes.add(prefix)
 
     def add_suffix(self, suffix):
+        """
+        Adds a command suffix. This will be appended to the command shell
+        command after the test file path.
+        """
         self.command_suffixes.add(suffix)
 
-    def add_cli_handler(self, func):
-        self.cli_handlers.append(func)
-
     def set_verbose(self, verbose):
+        """Sets verbosity mode."""
         self.verbose = bool(verbose)
 
     def time_passed(self):
+        """Returns how much time has passed since the tests began."""
         diff = datetime.datetime.now() - self.start_time
         return str(diff).split('.')[0]
 
     def log_failure(self, target):
+        """Log that a test has failed."""
+
+        # Obviously we don't need the separate count field if it's always going
+        # to match the number of test files that have failed. However, I
+        # think the plan was to let them diverge under certain circumstances.
+        # Need to revisit this.
         self.test_log['failures'] += 1
+
+        # A set would be cleaner here, but I like keeping the failures
+        # in order. It makes the progressive tally more readable.
         if target not in self.test_log['failed_tests']:
             self.test_log['failed_tests'].append(target)
 
     def log_pass(self):
+        """
+        Log that a test has passed. This is all we save for now, since we only
+        want additional details for tests that failed.
+        """
         self.test_log['passes'] += 1
 
     def strip_ansi(self, text):
+        """Remove ansi codes from text (such as text from the console)."""
         return re.sub(r'\033\[[0-9;]+m|\[2K', '', text)
 
     def run(self):
+        """Starts the tests a runnin'."""
         self.print_title()
 
-        # If no CLI args, try to resume state of the last time this was run
+        # If no search string, try to resume state from the prior run
         if len(self.cli_args) == 1:
             self.resume_state()
         else:
@@ -137,10 +181,15 @@ class EasyRunner(object):
             self.prompt_user()
 
     def print_title(self):
+        """
+        Wipes the /usr directory.
+
+        Just kidding. Prints the title.
+        """
         print(self._header('\n----- ' + self.title + ' -----\n'))
 
     def print_test_scope(self):
-        """Print the target files and related parameters (verbosity, etc.)"""
+        """Prints the target files and related parameters (verbosity, etc.)"""
         print(self._status('Target Files:'))
         count = 1
         for f in self.target_files:
@@ -172,6 +221,7 @@ class EasyRunner(object):
         print('{0}'.format(config_str))
 
     def print_commands(self):
+        """Print available command-prompt commands."""
         command_sets = [
             ('Enter', 'Run the listed test files'),
             ('#, #, #-#', 'Limit to specified file numbers'),
@@ -195,6 +245,7 @@ class EasyRunner(object):
             ))
 
     def prompt_user(self):
+        """Prompts the user and deals with the response."""
         try:
             print
             c = raw_input(self._status('Command [? for options]: '))
@@ -247,6 +298,7 @@ class EasyRunner(object):
         self.run_tests()
 
     def prompt_resume_state(self):
+        """Prompts the user to resume prior state."""
         try:
             print
             c = raw_input(
@@ -260,12 +312,14 @@ class EasyRunner(object):
         self.run_tests()
 
     def get_state_save_path(self):
+        """Gets the path at which to save the pickled state."""
         filename = '.{0}_state'.format(
             ('_'.join(self.title.split(' '))).lower())
         script_path = '/'.join(os.path.realpath(__file__).split('/')[:-1])
         return os.path.join(script_path, filename)
 
     def load_state(self):
+        """Tries to fetch the pickled state from the save file."""
         try:
             with open(self.get_state_save_path()) as f:
                 return pickle.load(f)
@@ -273,6 +327,7 @@ class EasyRunner(object):
             return False
 
     def save_state(self):
+        """Saves the runner's state."""
         state = {
             'files': self.target_files,
             'verbose': self.verbose
@@ -283,14 +338,19 @@ class EasyRunner(object):
         pickle.dump(state, file(self.get_state_save_path(), "w"))
 
     def get_state(self):
-        """Override me"""
+        """
+        Override me and return a dict of stuff to save in the pickled state.
+        """
         return {}
 
     def apply_state(self, state_obj):
-        """Override me"""
+        """
+        Override me to rehydrate the pickled state dict.
+        """
         pass
 
     def run_tests(self):
+        """Run all target test files."""
         if self.command_path:
             os.chdir(self.command_path)
 
@@ -300,6 +360,7 @@ class EasyRunner(object):
         self.finish()
 
     def run_command(self, target_file):
+        """Runs the shell command to execute the target file."""
         cmd = self.build_command(target_file)
 
         print('\n' + self._warn("[RUNNING]" +
@@ -327,6 +388,7 @@ class EasyRunner(object):
                 self._quit()
 
     def build_command(self, target_file):
+        """Builds the command string to run the test file."""
         prefixes = ' '.join(self.command_prefixes)
         suffixes = ' '.join(self.command_suffixes)
         return '{0} {1}'.format(
@@ -334,15 +396,17 @@ class EasyRunner(object):
             ' '.join([prefixes, target_file, suffixes]))
 
     def handle_output(self, target_file, output):
+        """Handles test output."""
         self.test_log['files'][target_file] = output
         self.update_log(target_file, output)
         self.print_tally()
 
     def update_log(self, target_file, output):
-        # Override me
+        """Override me to update the test log."""
         pass
 
     def format_progress_str(self, progress, total):
+        """Formats a basic, text progress bar for printing."""
         length = 76
         dashes = int(float(progress) / float(total) * length)
 
@@ -356,6 +420,7 @@ class EasyRunner(object):
         return buffer
 
     def print_tally(self):
+        """Prints tally of failed tests, time passed, tests left, etc."""
         pass_str = self._good('{0} passed'.format(self.test_log['passes']))
         fail_str = self._bad('{0} failed'.format(self.test_log['failures']))
 
@@ -383,6 +448,7 @@ class EasyRunner(object):
             )
 
     def print_search_parameters(self):
+        """Prints summary of test file search params."""
         if len(self.file_required_res) + len(self.file_optional_res) == 0:
             print(self._bad('No search patterns provided.'))
             self._quit()
@@ -402,6 +468,7 @@ class EasyRunner(object):
             print(s)
 
     def find_target_files(self):
+        """Find target test files and populate the list."""
         self.print_search_parameters()
         print(self._status('Searching...'))
         total_file_count = 0
@@ -434,7 +501,7 @@ class EasyRunner(object):
 
         # If all required patterns match and the --all flag has been passed,
         # return True
-        if self.use_all_files is True:
+        if self.use_all_files:
             return True
 
         if len(self.file_optional_res) == 0:
@@ -450,7 +517,7 @@ class EasyRunner(object):
         return False
 
     def validate(self):
-        """Make sure necessary paths exist."""
+        """Makes sure necessary paths exist."""
         paths = self.search_paths.copy()
         paths.add(self.command_path)
         for p in paths:
@@ -459,10 +526,13 @@ class EasyRunner(object):
                 self._quit()
 
     def process_cli_args(self):
+        """Processes each command-line argument."""
         for a in self.cli_args[1:]:
             self._process_cli_arg(a)
 
     def _process_cli_arg(self, arg):
+        """Processes a particular command line argument."""
+
         # TODO: Do we need all this?
         idx = self.cli_args.index(arg)
         if arg == '-sp':
@@ -480,6 +550,7 @@ class EasyRunner(object):
             self.add_required_regex(self.cli_args[idx])
 
     def resume_state(self):
+        """Tries to resume state from last execution of the test runnner."""
         state_obj = self.load_state()
         if not state_obj:
             print('No arguments. Need to add a usage statement!')
@@ -492,6 +563,7 @@ class EasyRunner(object):
         self.prompt_resume_state()
 
     def print_log(self):
+        """Prints the test tally."""
         if len(self.test_log) == 0:
             print(self._warn('\nNO RESULTS'))
             return
@@ -505,9 +577,14 @@ class EasyRunner(object):
             print(' - ' + ' | '.join(self.test_log['files'][tf]))
 
     def finish(self):
+        """Override me to do cleanup / final log output / whatever."""
         pass
 
     def get_path_rel_to_command_path(self, file_path):
+        """
+        Returns path relative to the command path. This is helpful for printing
+        results, where the user does not need to see the whole thing.
+        """
         if self.command_path in file_path:
             return file_path.split(self.command_path)[1][1:]
         return file_path
@@ -528,6 +605,7 @@ class EasyRunner(object):
         return self.clr.get('HEADER') + text + self.clr.get('ENDC')
 
     def _quit(self):
+        """Peace out."""
         print('\nFare thee well.')
         sys.exit()
 
