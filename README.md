@@ -54,7 +54,7 @@ Also, it's less useful to the extent:
 
 For faster (i.e., non-browser-automated) tests, I don't use this.
 
-Instead, if I'm running individual test methods, I use my [SublimeRunnyNose](https://github.com/harveyr/SublimeRunnyNose) plugin to run them straight from my editor. Much preferred.
+Instead, if I'm running individual test methods, I use something like my [SublimeRunnyNose](https://github.com/harveyr/SublimeRunnyNose) plugin to run them straight from my editor. Much preferred.
 
 ---
 
