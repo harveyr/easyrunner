@@ -249,7 +249,7 @@ class EasyRunner(object):
         try:
             print
             c = raw_input(self._status('Command [? for options]: '))
-        except:
+        except KeyboardInterrupt:
             self._quit()
         c = c.lower()
         if c == '?':
@@ -304,7 +304,7 @@ class EasyRunner(object):
             c = raw_input(
                 self._status("Hit anything but 'q' to re-run last batch: ")
             )
-        except:
+        except KeyboardInterrupt:
             self._quit()
         c = c.lower()
         if c in ['q', 'n']:
