@@ -92,9 +92,10 @@ class EasyRunner(object):
             self.command_path = path
         else:
             print(self._bad("Bad command path provided: {}".format(path)))
+            self._quit()
 
     def add_search_path(self, path):
-        """Adds a path where to go for a test searchin'."""
+        """Adds a path in which to go a test searchin'."""
         if path[0] == '~':
             path = os.path.expanduser(path)
         if os.path.exists(path):
