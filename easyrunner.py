@@ -202,10 +202,10 @@ class EasyRunner(object):
         count = 1
         for f in self.target_files:
             number_prefix = "[{0}]".format(count)
-            parts = os.path.split(self.get_path_rel_to_command_path(f))
+            head, tail = os.path.split(self.get_path_rel_to_command_path(f))
             print("\t{0}: {1}".format(
                 number_prefix,
-                (parts[0] + '/' + self._warn(parts[1]))
+                (head + '/' + self._warn(tail))
             ))
             count += 1
 
