@@ -101,14 +101,14 @@ class EasyRunner(object):
         if os.path.exists(path):
             self.search_paths.add(path)
 
-    def add_optional_regex(self, regex):
+    def add_optional_pattern(self, regex):
         """
         Adds an *optional* regular expression. A test file must match at least
         one of these to be included.
         """
         self.file_optional_res.add(re.compile(regex, re.I))
 
-    def add_required_regex(self, regex):
+    def add_required_pattern(self, regex):
         """
         Adds a *required* regular expression. If a test file does not match this,
         it is excluded.
@@ -548,14 +548,14 @@ class EasyRunner(object):
         elif arg == '-cp':
             self.set_command_path(self.cli_args[idx + 1])
         elif arg == '-op':
-            self.add_optional_regex(self.cli_args[idx + 1])
+            self.add_optional_pattern(self.cli_args[idx + 1])
         elif arg == '--all':
             self.use_all_files = True
             self.config_parts.append(arg)
         elif arg == '-v' or arg == '--verbose':
             self.set_verbose(True)
         else:
-            self.add_optional_regex(self.cli_args[idx])
+            self.add_optional_pattern(self.cli_args[idx])
 
     def resume_state(self):
         """Tries to resume state from last execution of the test runnner."""
@@ -622,14 +622,14 @@ class PythonUnittestRunner(EasyRunner):
     def __init__(self):
         self.set_title('Unittest Runner')
         self.set_command('python')
-        self.add_required_regex(r'.*py$')
+        self.add_required_pattern(r'.*py$')
 
 
 class PythonNoseRunner(EasyRunner):
     def __init__(self):
         self.set_title('Runny Nose')
         self.set_command('nosetests')
-        self.add_required_regex(r'.*py$')
+        self.add_required_pattern(r'.*py$')
 
 
 class BehatRunner(EasyRunner):
@@ -646,7 +646,7 @@ class BehatRunner(EasyRunner):
         self.outcome_re = re.compile(r'\d+\Wscenarios?\W\(.+\)')
         self.pass_re = re.compile(r'[1-9]+ passed\)')
 
-        self.add_required_regex(r'.*feature$')
+        self.add_required_pattern(r'.*feature$')
 
     def get_state(self):
         return {
