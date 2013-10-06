@@ -42,7 +42,7 @@ class EasyRunnerTests(unittest.TestCase):
     @patch('os.walk', mock_os_walk)
     def test_find_target_files(self):
         runner = easyrunner.EasyRunner()
-        runner.add_required_pattern(r'.py$')
+        runner.add_required_pattern(r'\.py$')
         runner.add_optional_pattern(r'feature')
         runner.add_search_path('arbitrary')
 
