@@ -15,10 +15,6 @@ def mock_os_walk(path):
         yield fake_structure
 
 
-def mock_path_exists(path):
-    return True
-
-
 def return_true(*args):
     return True
 
@@ -38,7 +34,7 @@ class EasyRunnerTests(unittest.TestCase):
             '[------------------------------------->                                     ]'
         )
 
-    @patch('os.path.exists', mock_path_exists)
+    @patch('os.path.exists', return_true)
     @patch('os.walk', mock_os_walk)
     def test_find_target_files(self):
         runner = easyrunner.EasyRunner()
