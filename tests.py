@@ -1,36 +1,58 @@
-import os
 import easyrunner
 import unittest
 from mock import patch
+from nose import tools as nt
 
 
 def mock_os_walk(path):
-    paths = [
-        ('.', [], ['fakeTest', 'fakeTest2'])
-    ]
-    return (p for p in paths)
+    for fake_structure in [
+        ('fakedir', [], [
+            'some_great_test.py',
+            'some_feature_test.py',
+            'another_feature_test.py'
+        ])
+    ]:
+        yield fake_structure
 
-def mock_input(prompt_msg):
-    return 'y'
+
+def mock_path_exists(path):
+    return True
+
 
 def return_true(*args):
     return True
+
 
 class EasyRunnerTests(unittest.TestCase):
     def setUp(self):
         pass
 
-    @patch('easyrunner.os.path.isfile', return_true)
-    @patch('easyrunner.os.walk', mock_os_walk)
-    @patch('builtins.raw_input', mock_input)
-    def test_behat_runner(self):
+    def test_progress_str(self):
         runner = easyrunner.EasyRunner()
-        # mock_os.walk = self.mock_os_walk
+        nt.assert_equal(
+            runner.progress_str(1, 100),
+            '[->                                                                         ]'
+        )
+        nt.assert_equal(
+            runner.progress_str(50, 100),
+            '[------------------------------------->                                     ]'
+        )
 
-        runner.add_required_regex(r'fakeTest')
-        runner.add_search_path('.')
-        runner.set_cli_args('fakeTest')
-        runner.run()
+    @patch('os.path.exists', mock_path_exists)
+    @patch('os.walk', mock_os_walk)
+    def test_find_target_files(self):
+        runner = easyrunner.EasyRunner()
+        runner.add_required_regex(r'.py$')
+        runner.add_optional_regex(r'feature')
+        runner.add_search_path('arbitrary')
 
-if __name__ == '__main__':
-    unittest.main()
+        expected_targets = [
+            'fakedir/some_feature_test.py',
+            'fakedir/another_feature_test.py',
+        ]
+
+        nt.assert_equal(
+            expected_targets,
+            runner.find_target_files()
+        )
+

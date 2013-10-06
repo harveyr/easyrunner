@@ -91,8 +91,8 @@ class EasyRunner(object):
         if os.path.isdir(path):
             self.command_path = path
         else:
-            print(self._bad("Bad command path provided: {}".format(path)))
-            self._quit()
+            print(self.bad("Bad command path provided: {}".format(path)))
+            self.quit()
 
     def add_search_path(self, path):
         """Adds a path in which to go a test searchin'."""
@@ -179,11 +179,11 @@ class EasyRunner(object):
             self.resume_state()
         else:
             self.validate()
-            self.find_target_files()
+            self.target_files = self.find_target_files()
 
             if len(self.target_files) == 0:
-                print(self._bad('No matches found.'))
-                self._quit()
+                print(self.bad('No matches found.'))
+                self.quit()
 
             self.print_test_scope()
             self.prompt_user()
@@ -194,18 +194,18 @@ class EasyRunner(object):
 
         Just kidding. Prints the title.
         """
-        print(self._header('\n----- ' + self.title + ' -----\n'))
+        print(self.header('\n----- ' + self.title + ' -----\n'))
 
     def print_test_scope(self):
         """Prints the target files and related parameters (verbosity, etc.)"""
-        print(self._status('Target Files:'))
+        print(self.status('Target Files:'))
         count = 1
         for f in self.target_files:
             number_prefix = "[{0}]".format(count)
             head, tail = os.path.split(self.get_path_rel_to_command_path(f))
             print("\t{0}: {1}".format(
                 number_prefix,
-                (head + '/' + self._warn(tail))
+                (head + '/' + self.warn(tail))
             ))
             count += 1
 
@@ -224,7 +224,7 @@ class EasyRunner(object):
             except ValueError:
                 pass
 
-        colored_config_parts = [self._good(cp) for cp in self.config_parts]
+        colored_config_parts = [self.good(cp) for cp in self.config_parts]
         config_str = '[ ' + ' | '.join(colored_config_parts) + ' ]'
         print('{0}'.format(config_str))
 
@@ -256,9 +256,9 @@ class EasyRunner(object):
         """Prompts the user and deals with the response."""
         try:
             print
-            c = raw_input(self._status('Command [? for options]: '))
+            c = raw_input(self.status('Command [? for options]: '))
         except KeyboardInterrupt:
-            self._quit()
+            self.quit()
         c = c.lower()
         if c == '?':
             self.print_test_scope()
@@ -272,7 +272,7 @@ class EasyRunner(object):
             self.prompt_user()
             return
         elif c in ['n', 'q']:
-            self._quit()
+            self.quit()
 
         # Handle number input, including spans
         numbers = set()
@@ -289,7 +289,7 @@ class EasyRunner(object):
             try:
                 num = int(part)
                 if num < 1 or num > len(self.target_files):
-                    print(self._bad((
+                    print(self.bad((
                         'That number is not in the list! Try again.\n')))
                     return self.prompt_user()
                     numbers.add(num)
@@ -310,13 +310,13 @@ class EasyRunner(object):
         try:
             print
             c = raw_input(
-                self._status("Hit anything but 'q' to re-run last batch: ")
+                self.status("Hit anything but 'q' to re-run last batch: ")
             )
         except KeyboardInterrupt:
-            self._quit()
+            self.quit()
         c = c.lower()
         if c in ['q', 'n']:
-            self._quit()
+            self.quit()
         self.run_tests()
 
     def get_state_save_path(self):
@@ -372,7 +372,7 @@ class EasyRunner(object):
         """Runs the shell command to execute the target file."""
         cmd = self.build_command(target_file)
 
-        print('\n' + self._warn("[RUNNING]" +
+        print('\n' + self.warn("[RUNNING]" +
               self.get_path_rel_to_command_path(target_file)))
 
         try:
@@ -390,11 +390,11 @@ class EasyRunner(object):
 
         except KeyboardInterrupt:
             if p:
-                print(self._warn('\nAborting...'))
+                print(self.warn('\nAborting...'))
                 print('Terminating current process...')
                 p.terminate()
                 print('... done.')
-                self._quit()
+                self.quit()
 
     def build_command(self, target_file):
         """Builds the command string to run the test file."""
@@ -415,66 +415,61 @@ class EasyRunner(object):
         """Override me to update the test log."""
         pass
 
-    def format_progress_str(self, progress, total):
+    def progress_str(self, progress, total):
         """Formats a basic, text progress bar for printing."""
         length = 76
-        dashes = int(float(progress) / float(total) * length)
-
-        buffer = '['
-        for i in range(dashes - 1):
-            buffer += '-'
-        buffer += '>'
-        for i in range(length - dashes):
-            buffer += ' '
-        buffer += ']'
-        return buffer
+        dashes = max(2, int(float(progress) / float(total) * length))
+        return '[{}>{}]'.format(
+            '-'.join(['' for i in range(dashes)]),
+            ' '.join(['' for i in range(length - dashes)])
+        )
 
     def print_tally(self):
         """Prints tally of failed tests, time passed, tests left, etc."""
-        pass_str = self._good('{0} passed'.format(self.test_log['passes']))
-        fail_str = self._bad('{0} failed'.format(self.test_log['failures']))
+        pass_str = self.good('{0} passed'.format(self.test_log['passes']))
+        fail_str = self.bad('{0} failed'.format(self.test_log['failures']))
 
         tests_run_count = len(self.test_log['files'])
         total_count = len(self.target_files)
 
-        f_count_str = self._status('{0}/{1} tests run'.format(
+        f_count_str = self.status('{0}/{1} tests run'.format(
             tests_run_count,
             total_count))
 
         print('\n{0}: {1} | {2}  [{3}] [{4}]'.format(
-            self._header('Test File Tally'),
+            self.header('Test File Tally'),
             pass_str,
             fail_str,
-            self._status(self.time_passed()),
+            self.status(self.time_passed()),
             f_count_str)
         )
 
         if total_count > 1:
-            print(self.format_progress_str(tests_run_count, total_count))
+            print(self.progress_str(tests_run_count, total_count))
 
         if len(self.test_log['failed_tests']) > 0:
-            print(self._warn('Failures:\n{0}'.format(
+            print(self.warn('Failures:\n{0}'.format(
                 '\n'.join(self.test_log['failed_tests'])))
             )
 
     def print_search_parameters(self):
         """Prints summary of test file search params."""
         if len(self.file_required_res) + len(self.file_optional_res) == 0:
-            print(self._bad('No search patterns provided.'))
-            self._quit()
+            print(self.bad('No search patterns provided.'))
+            self.quit()
 
-        print(self._status('Search Parameters'))
+        print(self.status('Search Parameters'))
         if len(self.file_required_res) > 0:
-            pats = [self._warn(r.pattern) for r in self.file_required_res]
+            pats = [self.warn(r.pattern) for r in self.file_required_res]
             s = '\tFile must match {0} of these patterns: '.format(
-                self._warn('all')
+                self.warn('all')
             )
             s += ' | '.join(pats)
             print(s)
         if len(self.file_optional_res) > 0:
-            pats = [self._status(r.pattern) for r in self.file_optional_res]
+            pats = [self.status(r.pattern) for r in self.file_optional_res]
             s = '\tFile must match {0} of these patterns: '.format(
-                self._status('any')
+                self.status('any')
             )
             s += ' | '.join(pats)
             print(s)
@@ -482,27 +477,28 @@ class EasyRunner(object):
     def find_target_files(self):
         """Find target test files and populate the list."""
         self.print_search_parameters()
-        print(self._status('Searching...'))
+        print(self.status('Searching...'))
         total_file_count = 0
 
         if len(self.search_paths) == 0:
             self.search_paths.add(self.command_path)
-
+        targets = []
         for path in self.search_paths:
-            for root, subFolders, files in os.walk(path):
+            for root, subfolders, files in os.walk(path):
                 count = 0
                 for f in files:
                     total_file_count += 1
                     file_path = os.path.join(root, f)
                     if self.evaluate_candidate_file(file_path):
-                        self.target_files.append(file_path)
+                        targets.append(file_path)
                         count += 1
 
                 root_path_str = '\t' + root
                 if count == 0:
                     print(root_path_str)
                 else:
-                    print(self._status(root_path_str + ' [{0}]'.format(count)))
+                    print(self.status(root_path_str + ' [{0}]'.format(count)))
+        return targets
 
     def evaluate_candidate_file(self, file_path):
         """Returns True if test file matches filter params."""
@@ -534,15 +530,15 @@ class EasyRunner(object):
         paths.add(self.command_path)
         for p in paths:
             if not os.path.isdir(p):
-                print(self._bad('Bad path: ' + p))
-                self._quit()
+                print(self.bad('Bad path: ' + p))
+                self.quit()
 
     def process_cli_args(self):
         """Processes each command-line argument."""
         for a in self.cli_args[1:]:
-            self._process_cli_arg(a)
+            self.__process_cli_arg(a)
 
-    def _process_cli_arg(self, arg):
+    def __process_cli_arg(self, arg):
         """Processes a particular command line argument."""
 
         # TODO: Do we need all this?
@@ -559,14 +555,14 @@ class EasyRunner(object):
         elif arg == '-v' or arg == '--verbose':
             self.set_verbose(True)
         else:
-            self.add_required_regex(self.cli_args[idx])
+            self.add_optional_regex(self.cli_args[idx])
 
     def resume_state(self):
         """Tries to resume state from last execution of the test runnner."""
         state_obj = self.load_state()
         if not state_obj:
             print('No arguments. (Need to add a usage statement!)')
-            self._quit()
+            self.quit()
         self.target_files = state_obj.get('files')
         self.verbose = state_obj.get('verbose')
         if hasattr(self, 'apply_state'):
@@ -577,15 +573,15 @@ class EasyRunner(object):
     def print_log(self):
         """Prints the test tally."""
         if len(self.test_log) == 0:
-            print(self._warn('\nNO RESULTS'))
+            print(self.warn('\nNO RESULTS'))
             return
 
-        print(self._header('\nRESULTS'))
+        print(self.header('\nRESULTS'))
         for tf in self.target_files:
             if not tf in self.test_log['files']:
                 continue
 
-            print(self._status(tf))
+            print(self.status(tf))
             print(' - ' + ' | '.join(self.test_log['files'][tf]))
 
     def finish(self):
@@ -601,22 +597,22 @@ class EasyRunner(object):
             return file_path.split(self.command_path)[1][1:]
         return file_path
 
-    def _status(self, text):
+    def status(self, text):
         return self.clr.get('BLUE') + text + self.clr.get('ENDC')
 
-    def _good(self, text):
+    def good(self, text):
         return self.clr.get('GREEN') + text + self.clr.get('ENDC')
 
-    def _bad(self, text):
+    def bad(self, text):
         return self.clr.get('FAIL') + text + self.clr.get('ENDC')
 
-    def _warn(self, text):
+    def warn(self, text):
         return self.clr.get('WARN') + text + self.clr.get('ENDC')
 
-    def _header(self, text):
+    def header(self, text):
         return self.clr.get('HEADER') + text + self.clr.get('ENDC')
 
-    def _quit(self):
+    def quit(self):
         """Peace out."""
         print('\nFare thee well.')
         sys.exit()
@@ -675,10 +671,10 @@ class BehatRunner(EasyRunner):
 
     def process_cli_args(self):
         super(BehatRunner, self).process_cli_args()
-        self._extract_tags()
-        self._extract_config_file()
+        self.__extract_tags()
+        self.__extract_config_file()
 
-    def _extract_tags(self):
+    def __extract_tags(self):
         args = self.cli_args
         if '--tags' in args:
             for t in args[args.index('--tags')].split(','):
@@ -696,7 +692,7 @@ class BehatRunner(EasyRunner):
             for t in self.tags:
                 self.config_parts.append('@{0}'.format(t))
 
-    def _extract_config_file(self):
+    def __extract_config_file(self):
         if '-c' in self.cli_args:
             idx = self.cli_args.index('-c')
             self.config_file = self.cli_args[idx + 1]
@@ -705,8 +701,8 @@ class BehatRunner(EasyRunner):
 
         path = os.path.join(self.command_path, self.config_file)
         if not os.path.isfile(path):
-            print(self._bad('Bad config file: ' + path))
-            self._quit()
+            print(self.bad('Bad config file: ' + path))
+            self.quit()
 
         self.add_prefix('-c ' + self.config_file)
         self.config_parts.insert(0, self.config_file)
