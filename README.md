@@ -3,6 +3,8 @@ easyrunner
 
 This is a script to help deal with annoying test suites.
 
+*Note:* The virtualenv requirements are just for tests.py. They're not needed for the script itself.
+
 ### Status
 Working, but work in progress.
 
