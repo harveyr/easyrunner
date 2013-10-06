@@ -365,11 +365,11 @@ class EasyRunner(object):
 
         self.start_time = datetime.datetime.now()
         for t in self.target_files:
-            self.run_command(t)
+            self.run_test_file(t)
         self.finish()
 
-    def run_command(self, target_file):
-        """Runs the shell command to execute the target file."""
+    def run_test_file(self, target_file):
+        """Runs tests in the target file."""
         cmd = self.build_command(target_file)
 
         print('\n' + self.warn("[RUNNING]" +
