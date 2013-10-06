@@ -10,6 +10,10 @@ def mock_os_walk(path):
             'some_great_test.py',
             'some_feature_test.py',
             'another_feature_test.py'
+        ]),
+        ('elsewhere', [], [
+            'truly_terrible_test.py',
+            'one_more_feature_test.py'
         ])
     ]:
         yield fake_structure
@@ -45,6 +49,7 @@ class EasyRunnerTests(unittest.TestCase):
         expected_targets = [
             'fakedir/some_feature_test.py',
             'fakedir/another_feature_test.py',
+            'elsewhere/one_more_feature_test.py'
         ]
 
         nt.assert_equal(
