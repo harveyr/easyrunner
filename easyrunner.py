@@ -475,7 +475,7 @@ class EasyRunner(object):
             print(s)
 
     def find_target_files(self):
-        """Find target test files and populate the list."""
+        """Returns list of target files based on search parameters."""
         self.print_search_parameters()
         print(self.status('Searching...'))
         total_file_count = 0
