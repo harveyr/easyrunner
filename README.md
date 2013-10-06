@@ -29,13 +29,15 @@ It will run the discovered tests and progressively report what has passed and wh
 ---
 
 ### Why
-This was originally (and hurriedly) written for a girthy Selenium test suite that took forever to run. Since the test runner (Behat) spammed the console as the tests ran, it was tough to tell what had failed unless you watched the log closely.
+This was originally (and hurriedly) written for a girthy Selenium test suite that took eons to run. Since the test runner (Behat) spammed the console as the tests ran, it was tough to tell what had failed unless you watched the log closely.
 
-Plus, the directory structure was deep and diverse enough that just finding a test became a distraction. (See example above.)
+Plus, the directory structure was complex enough that just finding a test became a distraction. (See example above.)
 
 If you kick off the suite with this script, it will let you know on a glance what has failed and how many tests are left.
 
 Or, if you're running a subset of tests, you can quickly target them with a search string.
+
+It's a great help for this particular test suite. Not sure how necessary it is for other types of tests.
 
 ---
 
