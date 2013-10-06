@@ -4,7 +4,7 @@ from mock import patch
 from nose import tools as nt
 
 
-def mock_os_walk(path):
+def mock_os_walk(a_path_we_ignore):
     for fake_structure in [
         ('fakedir', [], [
             'some_great_test.py',

@@ -101,19 +101,19 @@ class EasyRunner(object):
         if os.path.exists(path):
             self.search_paths.add(path)
 
-    def add_optional_pattern(self, regex):
+    def add_optional_pattern(self, pattern):
         """
         Adds an *optional* regular expression. A test file must match at least
         one of these to be included.
         """
-        self.file_optional_res.add(re.compile(regex, re.I))
+        self.file_optional_res.add(re.compile(pattern, re.I))
 
-    def add_required_pattern(self, regex):
+    def add_required_pattern(self, pattern):
         """
         Adds a *required* regular expression. If a test file does not match this,
         it is excluded.
         """
-        self.file_required_res.add(re.compile(regex, re.I))
+        self.file_required_res.add(re.compile(pattern, re.I))
 
     def add_prefix(self, prefix):
         """
