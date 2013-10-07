@@ -18,7 +18,11 @@ logger.addHandler(LOGHANDLER)
 class EasyRunner(object):
     """
     Abstract parent class. This must be subclassed for each type of test
-    in order to provide the specifics such pass/fail regexes and witty titles.
+    in order to provide the specifics such as pass/fail regexes and witty
+    titles.
+
+    Note that this class is doing too much. If I actually end up using this
+    on another project, perhaps I'll break it up.
     """
 
     title = 'EasyRunner'
@@ -136,6 +140,8 @@ class EasyRunner(object):
     def time_passed(self):
         """Returns how much time has passed since the tests began."""
         diff = datetime.datetime.now() - self.start_time
+        # Since we want this for user feedback, we'll let the timedelta
+        # stringify itself.
         return str(diff).split('.')[0]
 
     def log_failure(self, target):
