@@ -628,14 +628,14 @@ class PythonUnittestRunner(EasyRunner):
     def __init__(self):
         self.set_title('Unittest Runner')
         self.set_command('python')
-        self.add_required_pattern(r'.*py$')
+        self.add_required_pattern(r'\.py$')
 
 
 class PythonNoseRunner(EasyRunner):
     def __init__(self):
         self.set_title('Runny Nose')
         self.set_command('nosetests')
-        self.add_required_pattern(r'.*py$')
+        self.add_required_pattern(r'\.py$')
 
 
 class BehatRunner(EasyRunner):
